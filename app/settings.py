@@ -92,9 +92,13 @@ def build_usb_ffmpeg_args() -> list[str]:
         "-f",
         "v4l2",
     ]
-    fmt = (cap.get("video_format") or "").strip()
+    fmt = (cap.get("video_format") or "").strip().lower()
+    if cap.get("low_latency"):
+        args.extend(["-fflags", "nobuffer"])
     if fmt:
         args.extend(["-input_format", fmt])
+    if fmt == "h264":
+        args.extend(["-use_wallclock_as_timestamps", "1"])
     args.extend(
         [
             "-video_size",
@@ -109,31 +113,41 @@ def build_usb_ffmpeg_args() -> list[str]:
         args.extend(["-f", "alsa", "-i", cap.get("audio_device", "default")])
 
     vf_parts: list[str] = []
-    if cap.get("text_overlay"):
+    if cap.get("text_overlay") and fmt != "h264":
         overlay = cap["text_overlay"].replace("'", r"'\''")
         vf_parts.append(
             f"drawtext=expansion=strftime:text='{overlay}'"
             ":x=10:y=10:fontsize=24:fontcolor=white:box=1:boxcolor=0x00000080"
         )
+    elif cap.get("text_overlay") and fmt == "h264":
+        log.info("Skipping timestamp overlay for H264 USB capture (requires re-encode)")
+
     if vf_parts:
         args.extend(["-vf", ",".join(vf_parts)])
 
-    args.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-b:v",
-            str(cap["bitrate"]),
-        ]
-    )
+    args.extend(["-map", "0:v"])
     if cap.get("audio_enabled"):
-        args.extend(["-c:a", "aac", "-shortest"])
+        args.extend(["-map", "1:a?"])
+
+    if fmt == "h264" and not vf_parts:
+        args.extend(["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"])
+    else:
+        args.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-pix_fmt",
+                "yuv420p",
+                "-b:v",
+                str(cap["bitrate"]),
+            ]
+        )
+    if cap.get("audio_enabled"):
+        args.extend(["-c:a", "aac"])
     args.extend(
         [
             "-f",

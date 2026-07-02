@@ -78,8 +78,26 @@ sudo ./scripts/mount-share.sh //YOUR-PC/theater-archive /mnt/theater-archive
 Services:
 ```bash
 sudo systemctl status mediamtx theater-app
+sudo journalctl -u mediamtx -n 50 --no-pager
 sudo journalctl -u theater-app -f
 ```
+
+If `mediamtx.service` shows **Failed** / **start request repeated too quickly**, run the diagnostic script from your project folder:
+
+```bash
+chmod +x scripts/check-mediamtx.sh
+./scripts/check-mediamtx.sh
+```
+
+That runs MediaMTX in the foreground briefly and prints the actual error (systemd often hides it).
+
+**Common fixes:**
+- **Config path mismatch** — the unit expects `/opt/theater-app/mediamtx.yml`. If you run from `~/py-stream-record`, reinstall with:
+  ```bash
+  sudo INSTALL_DIR="$HOME/py-stream-record" ./scripts/install.sh
+  ```
+- **Binary missing** — same install script downloads MediaMTX to `/usr/local/bin/mediamtx`
+- **Port in use** — `sudo ss -tlnp | grep -E '8554|8889|9997'` then stop the conflicting process
 
 ## USB camera setup
 
@@ -103,6 +121,21 @@ capture:
 ```
 
 Use the `/dev/video*` node that lists capture formats (often `video0`, not `video1`). If ffmpeg fails to open the device, try setting `video_format` to one of the formats from `v4l2-ctl --list-formats-ext`. Match width/height/fps to a mode your camera actually supports.
+
+**HDMI USB capture (H.264 only)** — many dongles expose only `H264`. Example:
+
+```yaml
+capture:
+  source: usb
+  video_device: "/dev/video0"
+  video_format: h264
+  width: 1920
+  height: 1080
+  fps: 30
+  text_overlay: ""   # passthrough can't burn in timestamps without re-encode
+```
+
+The app passes H.264 through without re-encoding on the Pi (`-c:v copy`), which keeps CPU low at 1080p.
 
 Dashboard exposure/focus controls apply only to the Pi CSI camera (`source: csi`).
 
@@ -159,6 +192,7 @@ python run.py
 
 | Issue | Check |
 |-------|-------|
+| MediaMTX won't start | `chmod +x scripts/check-mediamtx.sh && ./scripts/check-mediamtx.sh` — shows the real error. Common: wrong config path in systemd (`/opt/theater-app` vs your clone), missing binary, or ports 8554/8889/9997 already in use |
 | No preview | `systemctl status mediamtx`; is capture running on dashboard? For USB: `v4l2-ctl --list-devices`, check `video_device` in config |
 | Stream not ready | Wait a few seconds after boot; check `journalctl -u theater-app` |
 | No audio | `arecord -l`, verify device in Settings, restart capture |
