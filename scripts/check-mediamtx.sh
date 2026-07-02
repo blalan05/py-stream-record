@@ -5,6 +5,7 @@ set -u
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 CONFIG="${MEDIAMTX_CONFIG:-$APP_DIR/mediamtx.yml}"
 BINARY="${MEDIAMTX_BIN:-/usr/local/bin/mediamtx}"
+EXPECTED_VERSION="${MEDIAMTX_VERSION:-1.11.3}"
 
 echo "==> MediaMTX diagnostics"
 echo "App dir:    $APP_DIR"
@@ -18,6 +19,11 @@ if [[ ! -x "$BINARY" ]]; then
   exit 1
 fi
 echo "OK:   binary exists"
+if "$BINARY" --version 2>/dev/null | head -1; then
+  :
+else
+  echo "WARN: could not read mediamtx version (expected ~v${EXPECTED_VERSION})"
+fi
 
 if [[ ! -f "$CONFIG" ]]; then
   echo "FAIL: config not found at $CONFIG"

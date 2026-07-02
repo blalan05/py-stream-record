@@ -16,7 +16,7 @@ rtspAddress: :8554
 
 webrtc: yes
 webrtcAddress: :8889
-webrtcAllowOrigins: ['*']
+webrtcAllowOrigin: '*'
 webrtcAdditionalHosts: []
 
 paths:

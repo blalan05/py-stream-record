@@ -177,7 +177,7 @@ python run.py
 
 **Files (advanced):**
 - `config.yaml` — app settings (production copy at `/etc/theater-app/config.yaml`)
-- `mediamtx.yml` — WebRTC/RTSP tuning (`writeQueueSize`, ports)
+- `mediamtx.yml` — WebRTC/RTSP tuning for MediaMTX **v1.11.3** (`writeQueueSize`, ports). Config field names must match the installed binary version.
 
 ## Operating a show
 
