@@ -5,6 +5,9 @@
 logLevel: info
 logDestinations: [stdout]
 
+# Outgoing packet queue (global setting in MediaMTX 1.11.x — not per-path)
+writeQueueSize: 1024
+
 api: yes
 apiAddress: 127.0.0.1:9997
 
@@ -20,7 +23,6 @@ paths:
   cam:
     source: publisher
     overridePublisher: yes
-    writeQueueSize: 1024
 
   cam_preview:
     source: redirect
