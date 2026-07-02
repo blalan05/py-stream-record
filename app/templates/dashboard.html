@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Dashboard</h1>
+  <div id="rec-badge" class="rec-badge {% if health.recording.recording %}active{% endif %}">
+    {% if health.recording.recording %}● REC{% else %}○ IDLE{% endif %}
+  </div>
+</header>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Live Preview</h2>
+    <div class="video-wrap">
+      <video id="preview" autoplay playsinline muted></video>
+    </div>
+    <p class="muted">WebRTC preview from MediaMTX</p>
+  </div>
+
+  <div class="card">
+    <h2>Recording</h2>
+    <form id="record-form" class="stack">
+      <label>Show name</label>
+      <input type="text" id="show-name" value="{{ cfg.recording.default_show_name }}" placeholder="Show name">
+      <div class="btn-row">
+        <button type="button" id="btn-start-show" class="btn primary large">Start Show</button>
+        <button type="button" id="btn-start" class="btn">Record</button>
+        <button type="button" id="btn-stop" class="btn danger">Stop</button>
+      </div>
+    </form>
+    <div id="record-status" class="status-box">
+      {% if health.recording.recording %}
+      Recording <strong>{{ health.recording.show_name }}</strong>
+      ({{ health.recording.elapsed_seconds }}s)
+      {% else %}
+      Not recording
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="grid three">
+  <div class="card">
+    <h3>System</h3>
+    <ul class="stat-list">
+      <li>Stream: <span id="stream-ready">{{ "Ready" if health.stream_ready else "Waiting" }}</span></li>
+      <li>Capture: <span id="capture-status">{{ "Running" if health.capture.running else "Stopped" }}</span></li>
+      <li>Disk free: <span id="disk-free">{{ health.disk.free_gb }} GB</span></li>
+      <li>CPU temp: <span id="cpu-temp">{{ health.cpu_temp_c or "N/A" }}</span> °C</li>
+      <li>Sync pending: <span id="sync-pending">{{ health.sync.pending_count }}</span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Camera</h3>
+    <form id="camera-form" class="stack">
+      <label><input type="checkbox" id="exposure-lock" {% if camera.exposure_lock %}checked{% endif %}> Exposure lock</label>
+      <label><input type="checkbox" id="awb-lock" {% if camera.awb_lock %}checked{% endif %}> White balance lock</label>
+      <label>Shutter (µs)</label>
+      <input type="number" id="shutter" value="{{ camera.shutter_us or 0 }}" min="0">
+      <label>Gain</label>
+      <input type="number" id="gain" value="{{ camera.gain or 0 }}" min="0">
+      <label>Lens position (manual focus)</label>
+      <input type="range" id="lens" min="0" max="10" step="0.1" value="{{ camera.lens_position or 0 }}">
+      <button type="button" id="btn-camera-save" class="btn">Apply camera</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Scene presets</h3>
+    <div class="stack">
+      <select id="preset-select">
+        <option value="">Select preset</option>
+        {% for p in presets %}
+        <option value="{{ p.name }}">{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" id="preset-name" placeholder="Preset name to save">
+      <div class="btn-row">
+        <button type="button" id="btn-preset-apply" class="btn">Apply</button>
+        <button type="button" id="btn-preset-save" class="btn">Save current</button>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.THEATER_WHEP_URL = "{{ cfg.mediamtx.webrtc_url }}";
+</script>
+<script src="/static/webrtc.js"></script>
+<script src="/static/dashboard.js"></script>
+{% endblock %}

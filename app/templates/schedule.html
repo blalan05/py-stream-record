@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Schedule{% endblock %}
+{% block content %}
+<h1>Recording schedule</h1>
+
+<div class="card stack">
+  <h2>Add showtime</h2>
+  <form id="schedule-form" class="stack">
+    <label>Show name</label>
+    <input type="text" name="show_name" required placeholder="Opening Night">
+    <label>Start (local datetime)</label>
+    <input type="datetime-local" name="start_at" required>
+    <label>Stop (local datetime)</label>
+    <input type="datetime-local" name="stop_at" required>
+    <button type="submit" class="btn primary">Add to schedule</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Scheduled shows</h2>
+  <table class="table">
+    <thead>
+      <tr><th>Show</th><th>Start</th><th>Stop</th><th></th></tr>
+    </thead>
+    <tbody id="schedule-body">
+      {% for e in schedule %}
+      <tr data-id="{{ e.id }}">
+        <td>{{ e.show_name }}</td>
+        <td>{{ e.start_at }}</td>
+        <td>{{ e.stop_at }}</td>
+        <td><button type="button" class="btn small danger delete-sched" data-id="{{ e.id }}">Delete</button></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No scheduled shows.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/schedule.js"></script>
+{% endblock %}

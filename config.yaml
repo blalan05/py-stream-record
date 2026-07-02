@@ -1,0 +1,58 @@
+app:
+  host: "0.0.0.0"
+  port: 8080
+  secret_key: "change-me-to-a-random-string"
+  pin: "1234"
+  public_monitor: true
+
+mediamtx:
+  api_url: "http://127.0.0.1:9997"
+  rtsp_url: "rtsp://127.0.0.1:8554/cam"
+  webrtc_url: "http://127.0.0.1:8889/cam/whep"
+  stream_path: "cam"
+
+capture:
+  enabled: true
+  source: usb
+  dev_mode: false
+  video_device: "/dev/video0"
+  video_format: ""
+  width: 1920
+  height: 1080
+  fps: 30
+  bitrate: 4000000
+  audio_enabled: true
+  audio_device: "default"
+  text_overlay: "%Y-%m-%d %H:%M:%S"
+  low_latency: true
+
+camera:
+  af_mode: "continuous"
+  lens_position: 0.0
+  exposure_lock: false
+  awb_lock: false
+  shutter_us: 0
+  gain: 0
+  awb_mode: "auto"
+  ev: 0.0
+
+recording:
+  local_dir: "/var/lib/theater-app/recordings"
+  filename_pattern: "{show}_{timestamp}"
+  default_show_name: "show"
+  container: "mp4"
+  segment_seconds: 600
+  auto_stop_hours: 0
+  min_free_gb: 5
+  estimated_mbps: 8
+
+sync:
+  enabled: true
+  smb_mount: "/mnt/theater-archive"
+  mode: "after_show"
+  interval_minutes: 30
+  delete_local_after_sync: false
+
+presets: []
+
+schedule: []

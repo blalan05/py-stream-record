@@ -1,0 +1,27 @@
+###############################################
+# Theater app - MediaMTX config
+# Camera+audio is published by app/capture.py via RTSP.
+
+logLevel: info
+logDestinations: [stdout]
+
+api: yes
+apiAddress: 127.0.0.1:9997
+
+rtsp: yes
+rtspAddress: :8554
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigins: ['*']
+webrtcAdditionalHosts: []
+
+paths:
+  cam:
+    source: publisher
+    overridePublisher: yes
+    writeQueueSize: 1024
+
+  cam_preview:
+    source: redirect
+    sourceRedirect: /cam

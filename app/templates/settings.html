@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="muted">Common options are editable here. Advanced MediaMTX/systemd tuning stays in config files on the Pi.</p>
+
+<form id="settings-form" class="card stack">
+  <h2>Capture / stream</h2>
+  <label>Video source</label>
+  <select name="capture.source" id="capture-source">
+    <option value="csi" {% if (settings.capture.source | default('csi')) == 'csi' %}selected{% endif %}>Pi Camera Module (CSI / rpicam-vid)</option>
+    <option value="usb" {% if (settings.capture.source | default('csi')) == 'usb' %}selected{% endif %}>USB camera (V4L2 / ffmpeg)</option>
+    <option value="dev" {% if (settings.capture.source | default('csi')) == 'dev' %}selected{% endif %}>Dev test pattern</option>
+  </select>
+  <div id="usb-fields" class="stack">
+    <label>USB video device</label>
+    <input type="text" name="capture.video_device" value="{{ settings.capture.video_device or '/dev/video0' }}" placeholder="/dev/video0">
+    <label>Video format (optional, e.g. mjpeg or h264)</label>
+    <input type="text" name="capture.video_format" value="{{ settings.capture.video_format or '' }}" placeholder="Leave blank to auto-detect">
+    <p class="muted">On the Pi, run <code>v4l2-ctl --list-devices</code> and <code>v4l2-ctl -d /dev/video0 --list-formats-ext</code> to find the right device and format.</p>
+  </div>
+  <label><input type="checkbox" name="capture.dev_mode" {% if settings.capture.dev_mode %}checked{% endif %}> Legacy dev_mode flag (overrides source to test pattern)</label>
+  <div class="grid two">
+    <div>
+      <label>Width</label>
+      <input type="number" name="capture.width" value="{{ settings.capture.width }}">
+    </div>
+    <div>
+      <label>Height</label>
+      <input type="number" name="capture.height" value="{{ settings.capture.height }}">
+    </div>
+    <div>
+      <label>FPS</label>
+      <input type="number" name="capture.fps" value="{{ settings.capture.fps }}">
+    </div>
+    <div>
+      <label>Bitrate</label>
+      <input type="number" name="capture.bitrate" value="{{ settings.capture.bitrate }}">
+    </div>
+  </div>
+  <label><input type="checkbox" name="capture.audio_enabled" {% if settings.capture.audio_enabled %}checked{% endif %}> Audio enabled</label>
+  <label>Audio device (ALSA)</label>
+  <input type="text" name="capture.audio_device" value="{{ settings.capture.audio_device }}">
+  <label><input type="checkbox" name="capture.dev_mode" {% if settings.capture.dev_mode %}checked{% endif %}> Dev mode (test pattern, no Pi camera)</label>
+
+  <h2>Recording</h2>
+  <label>Local folder</label>
+  <input type="text" name="recording.local_dir" value="{{ settings.recording.local_dir }}">
+  <label>Filename pattern ({show}, {timestamp})</label>
+  <input type="text" name="recording.filename_pattern" value="{{ settings.recording.filename_pattern }}">
+  <label>Default show name</label>
+  <input type="text" name="recording.default_show_name" value="{{ settings.recording.default_show_name }}">
+  <label>Container</label>
+  <select name="recording.container">
+    <option value="mp4" {% if settings.recording.container == 'mp4' %}selected{% endif %}>MP4</option>
+    <option value="ts" {% if settings.recording.container == 'ts' %}selected{% endif %}>MPEG-TS</option>
+  </select>
+  <label>Segment length (seconds, crash-safe chunks)</label>
+  <input type="number" name="recording.segment_seconds" value="{{ settings.recording.segment_seconds }}">
+  <label>Auto-stop after (hours, 0 = disabled)</label>
+  <input type="number" step="0.5" name="recording.auto_stop_hours" value="{{ settings.recording.auto_stop_hours }}">
+  <label>Minimum free disk (GB)</label>
+  <input type="number" name="recording.min_free_gb" value="{{ settings.recording.min_free_gb }}">
+
+  <h2>Network sync</h2>
+  <label><input type="checkbox" name="sync.enabled" {% if settings.sync.enabled %}checked{% endif %}> Sync enabled</label>
+  <label>SMB mount path</label>
+  <input type="text" name="sync.smb_mount" value="{{ settings.sync.smb_mount }}">
+  <label>Sync mode</label>
+  <select name="sync.mode">
+    <option value="after_show" {% if settings.sync.mode == 'after_show' %}selected{% endif %}>After each show</option>
+    <option value="interval" {% if settings.sync.mode == 'interval' %}selected{% endif %}>On interval</option>
+    <option value="manual" {% if settings.sync.mode == 'manual' %}selected{% endif %}>Manual only</option>
+  </select>
+  <label>Interval (minutes, if interval mode)</label>
+  <input type="number" name="sync.interval_minutes" value="{{ settings.sync.interval_minutes }}">
+  <label><input type="checkbox" name="sync.delete_local_after_sync" {% if settings.sync.delete_local_after_sync %}checked{% endif %}> Delete local after confirmed sync</label>
+
+  <button type="submit" class="btn primary">Save settings</button>
+  <p id="settings-msg" class="muted"></p>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="/static/settings.js"></script>
+<script>
+  const sourceSelect = document.getElementById("capture-source");
+  const usbFields = document.getElementById("usb-fields");
+  function syncUsbFields() {
+    if (usbFields && sourceSelect) {
+      usbFields.style.display = sourceSelect.value === "usb" ? "block" : "none";
+    }
+  }
+  sourceSelect?.addEventListener("change", syncUsbFields);
+  syncUsbFields();
+</script>
+{% endblock %}

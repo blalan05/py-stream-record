@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Recordings{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Recordings</h1>
+  <button type="button" id="btn-sync-all" class="btn">Sync all pending</button>
+</header>
+
+<div class="card">
+  <p>SMB mount: <code>{{ sync.mount }}</code> — {{ "available" if sync.mount_available else "not mounted" }}</p>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Size (MB)</th>
+        <th>Synced</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recordings %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ r.size_mb }}</td>
+        <td>{{ "Yes" if r.synced else "No" }}</td>
+        <td>
+          <a class="btn small" href="/api/recordings/download?path={{ r.path | urlencode }}">Download</a>
+          {% if not r.synced %}
+          <button type="button" class="btn small sync-one" data-path="{{ r.path }}">Sync</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No recordings yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/recordings.js"></script>
+{% endblock %}
