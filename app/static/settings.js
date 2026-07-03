@@ -134,18 +134,45 @@ function applyFormatSelection(value) {
   syncVideoModeDropdowns();
 }
 
+async function readJson(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await resp.text();
+    throw new Error(text.slice(0, 120) || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
 async function loadDeviceLists() {
   const msg = document.getElementById("settings-msg");
   try {
     const [videoResp, audioResp] = await Promise.all([
-      fetch("/api/devices/video"),
-      fetch("/api/devices/audio"),
+      fetch("/api/devices/video", { credentials: "same-origin" }),
+      fetch("/api/devices/audio", { credentials: "same-origin" }),
     ]);
-    const videoData = await videoResp.json();
-    const audioData = await audioResp.json();
+    const videoData = await readJson(videoResp);
+    const audioData = await readJson(audioResp);
 
     videoDevices = videoData.devices || [];
-    audioDevices = audioData.devices || [];
+    audioDevices = audioData.devices || [{ alsa: "default", name: "System default" }];
+
+    const customInput = document.getElementById("video-device-custom");
+    const currentVideo = customInput?.value?.trim() || "/dev/video0";
+
+    if (!videoDevices.length && currentVideo) {
+      try {
+        const probeResp = await fetch(
+          `/api/devices/video/probe?device=${encodeURIComponent(currentVideo)}`,
+          { credentials: "same-origin" }
+        );
+        const probeData = await readJson(probeResp);
+        if (probeData.device) {
+          videoDevices = [probeData.device];
+        }
+      } catch {
+        // keep empty list; user can still type a custom path
+      }
+    }
 
     const videoSelect = document.getElementById("video-device-select");
     const audioSelect = document.getElementById("audio-device-select");
@@ -180,9 +207,15 @@ async function loadDeviceLists() {
     }
 
     syncVideoModeDropdowns();
-    if (msg) msg.textContent = `Found ${videoDevices.length} camera(s), ${audioDevices.length} audio device(s).`;
+    const errors = [videoData.error, audioData.error].filter(Boolean);
+    if (msg) {
+      msg.textContent = errors.length
+        ? `Scan partial: ${errors.join("; ")}`
+        : `Found ${videoDevices.length} camera(s), ${audioDevices.length} audio device(s).`;
+    }
   } catch (err) {
     if (msg) msg.textContent = `Device scan failed: ${err.message || err}`;
+    syncVideoModeDropdowns();
   }
 }
 
@@ -225,9 +258,10 @@ document.getElementById("btn-test-mic")?.addEventListener("click", async () => {
     const resp = await fetch("/api/devices/audio/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ device }),
     });
-    const data = await resp.json();
+    const data = await readJson(resp);
     if (!resp.ok || !data.ok) {
       throw new Error(data.error || "Mic test failed");
     }

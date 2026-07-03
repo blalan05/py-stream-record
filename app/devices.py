@@ -12,7 +12,7 @@ _DEVICE_HEADER_RE = re.compile(r"^(.+?):\s*$")
 _DEVICE_PATH_RE = re.compile(r"^\s*(/dev/video\d+)\s*$")
 _FORMAT_RE = re.compile(r"^\s*\[\d+\]:\s+'([^']+)'")
 _SIZE_RE = re.compile(r"^\s*Size:\s+Discrete\s+(\d+)x(\d+)")
-_FPS_RE = re.compile(r"^\s*Interval:\s+Discrete\s+[\d.]+\s*\(([\d.]+)\s*fps\)")
+_FPS_RE = re.compile(r"^\s*Interval:\s+(?:Discrete|Continuous)\s+[\d.s]+\s*\(([\d.]+)\s*fps\)")
 _ARECORD_CARD_RE = re.compile(r"^card (\d+): (.+?) \[(.+?)\], device (\d+): (.+?) \[(.+?)\]")
 
 
@@ -58,6 +58,19 @@ def _parse_formats_ext(output: str) -> list[dict[str, Any]]:
                 current_resolution["fps"].append(fps)
 
     return formats
+
+
+def probe_video_device(device_path: str) -> dict[str, Any] | None:
+    """Return device info for a single V4L2 path (fallback when list-devices parsing fails)."""
+    if not shutil.which("v4l2-ctl"):
+        return None
+    fmt_proc = _run(["v4l2-ctl", "-d", device_path, "--list-formats-ext"], timeout=15)
+    if fmt_proc.returncode != 0:
+        return None
+    formats = _parse_formats_ext(fmt_proc.stdout)
+    if not formats:
+        return None
+    return {"device": device_path, "name": device_path, "formats": formats}
 
 
 def list_video_devices() -> dict[str, Any]:

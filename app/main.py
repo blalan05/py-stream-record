@@ -31,6 +31,7 @@ from app.scheduler import add_schedule_entry, delete_schedule_entry, list_schedu
 from app.sync import list_recordings, sync_file, sync_pending_local, sync_status
 from app.system import check_disk_guard, health_snapshot, public_whep_url, stream_ready
 from app.clips import create_clip, delete_clip, list_clips, validate_recording_path
+from app.devices import list_audio_devices, list_video_devices, probe_video_device, test_audio_device
 from app.v4l2_controls import apply_v4l2_controls, control_groups, list_v4l2_controls, set_v4l2_control
 from app.watchdog import watchdog
 
@@ -260,27 +261,56 @@ async def api_camera_update(request: Request):
     return settings
 
 
+@app.get("/api/devices/video/probe")
+async def api_devices_video_probe(device: str, request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    try:
+        info = await asyncio.to_thread(probe_video_device, device)
+    except Exception as exc:
+        log.exception("Video device probe failed")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    if not info:
+        return JSONResponse({"error": f"No formats found on {device}"}, status_code=404)
+    return {"device": info}
+
+
 @app.get("/api/devices/video")
 async def api_devices_video(request: Request):
     if redirect := require_auth(request):
         return redirect
-    return await asyncio.to_thread(list_video_devices)
+    try:
+        return await asyncio.to_thread(list_video_devices)
+    except Exception as exc:
+        log.exception("Video device scan failed")
+        return JSONResponse({"available": False, "error": str(exc), "devices": []}, status_code=500)
 
 
 @app.get("/api/devices/audio")
 async def api_devices_audio(request: Request):
     if redirect := require_auth(request):
         return redirect
-    return await asyncio.to_thread(list_audio_devices)
+    try:
+        return await asyncio.to_thread(list_audio_devices)
+    except Exception as exc:
+        log.exception("Audio device scan failed")
+        return JSONResponse({"available": False, "error": str(exc), "devices": [{"alsa": "default", "name": "System default"}]}, status_code=500)
 
 
 @app.post("/api/devices/audio/test")
 async def api_devices_audio_test(request: Request):
     if redirect := require_auth(request):
         return redirect
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
     device = data.get("device") or get_config()["capture"].get("audio_device", "default")
-    return await asyncio.to_thread(test_audio_device, device)
+    try:
+        return await asyncio.to_thread(test_audio_device, device)
+    except Exception as exc:
+        log.exception("Mic test failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @app.get("/api/camera/controls")
