@@ -78,12 +78,27 @@ class CaptureManager:
         if proc.poll() is not None and lines:
             self.state.last_error = "\n".join(lines[-8:])
 
+    def _read_ffmpeg_error(self, proc: subprocess.Popen[bytes]) -> str:
+        if self._stderr_thread:
+            self._stderr_thread.join(timeout=1.0)
+        if self.state.last_error:
+            return self.state.last_error
+        if proc.stderr:
+            try:
+                err = proc.stderr.read().decode("utf-8", errors="replace").strip()
+                if err:
+                    return err[-2000:]
+            except Exception:
+                pass
+        return f"ffmpeg exited {proc.returncode}"
+
     def _start_usb_capture(self) -> None:
         errors: list[str] = []
         for fmt in usb_ffmpeg_format_candidates():
             label = fmt or "auto"
             cmd = build_usb_ffmpeg_args(video_format=fmt)
             log.info("USB capture trying format=%s: %s", label, " ".join(cmd))
+            self.state.last_error = None
             proc = self._spawn_ffmpeg(cmd)
             time.sleep(2.0)
             if proc.poll() is None:
@@ -92,9 +107,10 @@ class CaptureManager:
                     log.warning("USB capture succeeded with format=%s (update config to match)", label)
                 return
             proc.wait(timeout=2)
-            msg = self.state.last_error or f"ffmpeg exited {proc.returncode}"
+            msg = self._read_ffmpeg_error(proc)
             errors.append(f"[{label}] {msg}")
             log.warning("USB capture failed format=%s: %s", label, msg)
+            time.sleep(0.5)
         joined = " | ".join(errors)
         self.state.last_error = joined
         raise RuntimeError(f"USB capture failed: {joined}")

@@ -51,7 +51,7 @@
       <input type="number" name="capture.rotation_fine" step="0.5" min="-45" max="45" value="{{ settings.capture.rotation_fine | default(0) }}">
     </div>
   </div>
-  <p class="muted">Rotation restarts capture. Any rotation re-encodes video (slightly more CPU than H.264 passthrough).</p>
+  <p class="muted">Rotation restarts capture and re-encodes video (uses MJPEG when possible). Set <code>video_format: mjpeg</code> if rotation fails with H.264.</p>
   <label><input type="checkbox" name="capture.audio_enabled" {% if settings.capture.audio_enabled %}checked{% endif %}> Audio enabled</label>
   <label>Audio device (ALSA)</label>
   <input type="text" name="capture.audio_device" value="{{ settings.capture.audio_device }}">
