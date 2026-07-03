@@ -75,6 +75,14 @@ sudo ./scripts/mount-share.sh //YOUR-PC/theater-archive /mnt/theater-archive
 
 7. Open `http://<pi-ip>:8080` and log in.
 
+After changing code in your clone (e.g. `~/py-stream-record`), deploy to the running install:
+
+```bash
+chmod +x scripts/deploy.sh
+sudo ./scripts/deploy.sh              # default target: /opt/theater-app
+sudo ./scripts/deploy.sh ~/py-stream-record   # if install lives in your home dir
+```
+
 Services:
 ```bash
 sudo systemctl status mediamtx theater-app
