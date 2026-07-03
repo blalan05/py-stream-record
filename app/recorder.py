@@ -23,6 +23,7 @@ def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) 
     """Record from RTSP with stream copy; tuned to avoid timestamp stutter in MP4 segments."""
     cfg = get_config()
     ext = cfg["recording"].get("container", "mp4")
+    audio_enabled = bool(cfg["capture"].get("audio_enabled"))
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -38,21 +39,25 @@ def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) 
         rtsp,
         "-map",
         "0:v:0",
-        "-map",
-        "0:a:0?",
-        "-c",
-        "copy",
-        "-avoid_negative_ts",
-        "make_zero",
-        "-max_muxing_queue_size",
-        "1024",
-        "-f",
-        "segment",
-        "-segment_time",
-        str(segment_seconds),
-        "-break_non_keyframes",
-        "0",
     ]
+    if audio_enabled:
+        cmd.extend(["-map", "0:a:0"])
+    cmd.extend(
+        [
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-max_muxing_queue_size",
+            "1024",
+            "-f",
+            "segment",
+            "-segment_time",
+            str(segment_seconds),
+            "-break_non_keyframes",
+            "0",
+        ]
+    )
     if ext == "mp4":
         cmd.extend(
             [
@@ -135,8 +140,26 @@ class Recorder:
             rtsp = cfg["mediamtx"]["rtsp_url"]
             segment_seconds = int(cfg["recording"].get("segment_seconds", 600))
 
+            if cfg["capture"].get("audio_enabled"):
+                from app.system import stream_has_audio, stream_ready
+
+                if not stream_ready():
+                    raise RuntimeError("Stream not ready — wait for capture before recording")
+                if not stream_has_audio():
+                    raise RuntimeError(
+                        "Stream has no audio track. Check Settings (plughw device) and wait until "
+                        "Tracks shows audio before recording."
+                    )
+
             cmd = _recorder_ffmpeg_cmd(rtsp, segment_pattern, segment_seconds)
+            log.info("Recorder ffmpeg: %s", " ".join(cmd))
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            time.sleep(0.75)
+            if proc.poll() is not None:
+                err = ""
+                if proc.stderr:
+                    err = proc.stderr.read().decode("utf-8", errors="replace").strip()
+                raise RuntimeError(err or "Recording ffmpeg exited immediately")
             self._session = RecordingSession(
                 show_name=show,
                 started_at=time.time(),

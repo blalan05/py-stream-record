@@ -8,7 +8,7 @@ function initAudioMeter(stream) {
   const audioTracks = stream.getAudioTracks();
   const status = document.getElementById("audio-meter-status");
   if (!audioTracks.length) {
-    if (status) status.textContent = "No audio track";
+    if (status) status.textContent = "Waiting for audio track…";
     return;
   }
 
@@ -69,23 +69,34 @@ async function connectWhep(videoId, whepUrl) {
   pc.addTransceiver("video", { direction: "recvonly" });
   pc.addTransceiver("audio", { direction: "recvonly" });
 
-  let gotTrack = false;
+  const previewStream = new MediaStream();
+
+  function syncPreview() {
+    video.srcObject = previewStream;
+    initAudioMeter(previewStream);
+    video.play?.().catch(() => {});
+  }
+
+  let gotVideo = false;
   const trackPromise = new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
-      if (!gotTrack) {
+      if (!gotVideo) {
         reject(new Error("Connected but no video track yet (is capture publishing?)"));
       }
     }, 8000);
 
     pc.ontrack = (ev) => {
-      gotTrack = true;
-      window.clearTimeout(timer);
-      if (!video.srcObject) {
-        video.srcObject = ev.streams[0];
-        initAudioMeter(ev.streams[0]);
+      const track = ev.track;
+      if (!previewStream.getTracks().some((t) => t.id === track.id)) {
+        previewStream.addTrack(track);
       }
-      video.play?.().catch(() => {});
-      resolve();
+      syncPreview();
+
+      if (track.kind === "video") {
+        gotVideo = true;
+        window.clearTimeout(timer);
+        resolve();
+      }
     };
   });
 
