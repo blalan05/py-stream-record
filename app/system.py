@@ -9,7 +9,6 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from app.config import get_config
-from app.capture import capture_manager
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +99,7 @@ def stream_ready() -> bool:
 
 
 def health_snapshot() -> dict[str, Any]:
+    from app.capture import capture_manager
     from app.recorder import recorder
     from app.sync import sync_status
 

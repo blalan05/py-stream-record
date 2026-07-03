@@ -15,7 +15,6 @@ from app.camera import (
     usb_ffmpeg_format_candidates,
 )
 from app.config import get_config
-from app.system import mediamtx_ready
 
 log = logging.getLogger(__name__)
 
@@ -40,9 +39,16 @@ class CaptureManager:
 
     def _wait_for_mediamtx(self, timeout: float = 30.0) -> bool:
         deadline = time.time() + timeout
+        cfg = get_config()
         while time.time() < deadline:
-            if mediamtx_ready():
-                return True
+            try:
+                import httpx
+
+                r = httpx.get(f"{cfg['mediamtx']['api_url']}/v3/paths/list", timeout=2.0)
+                if r.status_code == 200:
+                    return True
+            except Exception:
+                pass
             time.sleep(0.5)
         return False
 
