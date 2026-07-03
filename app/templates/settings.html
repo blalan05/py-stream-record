@@ -14,10 +14,16 @@
   </select>
   <div id="usb-fields" class="stack">
     <label>USB video device</label>
-    <input type="text" name="capture.video_device" value="{{ settings.capture.video_device or '/dev/video0' }}" placeholder="/dev/video0">
-    <label>Video format (optional — try mjpeg for most USB webcams)</label>
-    <input type="text" name="capture.video_format" value="{{ settings.capture.video_format or '' }}" placeholder="Leave blank to auto-detect">
-    <p class="muted">Run <code>v4l2-ctl --list-devices</code> and <code>v4l2-ctl -d /dev/video0 --list-formats-ext</code> on the Pi. Pick a format and resolution your camera supports.</p>
+    <select id="video-device-select"></select>
+    <input type="text" id="video-device-custom" name="capture.video_device" value="{{ settings.capture.video_device or '/dev/video0' }}" placeholder="/dev/video0">
+    <label>Video format</label>
+    <select id="video-format-select"></select>
+    <input type="hidden" name="capture.video_format" value="{{ settings.capture.video_format or '' }}">
+    <label>Resolution</label>
+    <select id="video-resolution-select"></select>
+    <label>FPS</label>
+    <select id="video-fps-select"></select>
+    <p class="muted">Pick a discovered camera and mode, or use the width/height/fps fields below for custom values.</p>
   </div>
   <label><input type="checkbox" name="capture.dev_mode" {% if settings.capture.dev_mode %}checked{% endif %}> Legacy dev_mode flag (overrides source to test pattern)</label>
   <div class="grid two">
@@ -52,9 +58,25 @@
     </div>
   </div>
   <p class="muted">Rotation restarts capture and re-encodes video (uses MJPEG when possible). Set <code>video_format: mjpeg</code> if rotation fails with H.264.</p>
+  <button type="button" id="btn-rescan-devices" class="btn small">Rescan devices</button>
   <label><input type="checkbox" name="capture.audio_enabled" {% if settings.capture.audio_enabled %}checked{% endif %}> Audio enabled</label>
   <label>Audio device (ALSA)</label>
-  <input type="text" name="capture.audio_device" value="{{ settings.capture.audio_device }}">
+  <select id="audio-device-select"></select>
+  <input type="hidden" name="capture.audio_device" value="{{ settings.capture.audio_device }}">
+  <div class="grid two">
+    <div>
+      <label>Audio sample rate (Hz, 0 = device default)</label>
+      <input type="number" name="capture.audio_rate" value="{{ settings.capture.audio_rate | default(48000) }}">
+    </div>
+    <div>
+      <label>Audio channels (0 = device default)</label>
+      <input type="number" name="capture.audio_channels" min="0" max="8" value="{{ settings.capture.audio_channels | default(0) }}">
+    </div>
+  </div>
+  <div class="btn-row">
+    <button type="button" id="btn-test-mic" class="btn small">Test mic</button>
+  </div>
+  <p id="audio-test-msg" class="muted"></p>
 
   <h2>Recording</h2>
   <label>Local folder</label>

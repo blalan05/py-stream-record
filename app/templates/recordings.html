@@ -1,5 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Recordings{% endblock %}
+{% block head %}
+<style>
+  .player-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 100;
+    padding: 1rem;
+    overflow: auto;
+  }
+  .player-modal.open { display: flex; align-items: flex-start; justify-content: center; }
+  .player-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    width: min(960px, 100%);
+    margin-top: 2rem;
+  }
+  .player-panel video { width: 100%; border-radius: 8px; background: #000; }
+  .clip-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+  .clip-times { font-family: monospace; color: var(--muted); }
+</style>
+{% endblock %}
 {% block content %}
 <header class="page-header">
   <h1>Recordings</h1>
@@ -24,6 +49,7 @@
         <td>{{ r.size_mb }}</td>
         <td>{{ "Yes" if r.synced else "No" }}</td>
         <td>
+          <button type="button" class="btn small play-one" data-path="{{ r.path }}" data-name="{{ r.name }}">Play</button>
           <a class="btn small" href="/api/recordings/download?path={{ r.path | urlencode }}">Download</a>
           {% if not r.synced %}
           <button type="button" class="btn small sync-one" data-path="{{ r.path }}">Sync</button>
@@ -35,6 +61,53 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Clips</h2>
+  <p class="muted">Short clips created from recordings (not auto-synced).</p>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Size (MB)</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="clips-table">
+      {% for c in clips %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td>{{ c.size_mb }}</td>
+        <td>
+          <button type="button" class="btn small play-one" data-path="{{ c.path }}" data-name="{{ c.name }}">Play</button>
+          <a class="btn small" href="/api/recordings/download?path={{ c.path | urlencode }}">Download</a>
+          <button type="button" class="btn small danger delete-clip" data-path="{{ c.path }}">Delete</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3">No clips yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div id="player-modal" class="player-modal">
+  <div class="player-panel">
+    <div class="page-header">
+      <h2 id="player-title">Recording</h2>
+      <button type="button" id="btn-close-player" class="btn small">Close</button>
+    </div>
+    <video id="player-video" controls playsinline></video>
+    <div class="clip-controls">
+      <button type="button" id="btn-clip-start" class="btn small">Set start</button>
+      <button type="button" id="btn-clip-end" class="btn small">Set end</button>
+      <span class="clip-times">Start: <span id="clip-start">—</span> · End: <span id="clip-end">—</span></span>
+      <input type="text" id="clip-name" placeholder="Clip name">
+      <button type="button" id="btn-create-clip" class="btn primary small">Create clip</button>
+    </div>
+    <p id="clip-msg" class="muted"></p>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}

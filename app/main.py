@@ -30,6 +30,7 @@ from app.recorder import recorder
 from app.scheduler import add_schedule_entry, delete_schedule_entry, list_schedule, start_scheduler, stop_scheduler
 from app.sync import list_recordings, sync_file, sync_pending_local, sync_status
 from app.system import check_disk_guard, health_snapshot, public_whep_url, stream_ready
+from app.clips import create_clip, delete_clip, list_clips, validate_recording_path
 from app.v4l2_controls import apply_v4l2_controls, control_groups, list_v4l2_controls, set_v4l2_control
 from app.watchdog import watchdog
 
@@ -38,6 +39,7 @@ log = logging.getLogger(__name__)
 BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 ASSET_VERSION = str(int(time.time()))
+_boot_capture_task: asyncio.Task | None = None
 
 
 class NoCacheHtmlMiddleware(BaseHTTPMiddleware):
@@ -55,13 +57,15 @@ async def lifespan(app: FastAPI):
     cfg = get_config()
     Path(cfg["recording"]["local_dir"]).mkdir(parents=True, exist_ok=True)
 
+    global _boot_capture_task
+
     async def _boot_capture() -> None:
         try:
             await asyncio.to_thread(capture_manager.start)
         except Exception:
             log.exception("Initial capture start failed (dev machine?)")
 
-    asyncio.create_task(_boot_capture())
+    _boot_capture_task = asyncio.create_task(_boot_capture())
     start_scheduler()
     watchdog.start()
     if cfg["sync"].get("mode") == "interval":
@@ -153,7 +157,7 @@ async def recordings_page(request: Request):
     return templates.TemplateResponse(
         request,
         "recordings.html",
-        _ctx(request, recordings=list_recordings(), sync=sync_status()),
+        _ctx(request, recordings=list_recordings(), clips=list_clips(), sync=sync_status()),
     )
 
 
@@ -192,7 +196,7 @@ async def api_recording_start(request: Request, show_name: str = Form("")):
     if redirect := require_auth(request):
         return redirect
     try:
-        return recorder.start(show_name or None)
+        return await asyncio.to_thread(recorder.start, show_name or None)
     except RuntimeError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -201,7 +205,7 @@ async def api_recording_start(request: Request, show_name: str = Form("")):
 async def api_recording_stop(request: Request):
     if redirect := require_auth(request):
         return redirect
-    return recorder.stop()
+    return await asyncio.to_thread(recorder.stop)
 
 
 @app.post("/api/start-show")
@@ -232,7 +236,7 @@ async def api_start_show(
         return JSONResponse({"error": guard["message"]}, status_code=400)
 
     try:
-        status = recorder.start(show_name or None)
+        status = await asyncio.to_thread(recorder.start, show_name or None)
         return {"ok": True, "recording": status, "stream_ready": True}
     except RuntimeError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -254,6 +258,29 @@ async def api_camera_update(request: Request):
     settings = update_camera_settings(data)
     await asyncio.to_thread(capture_manager.restart)
     return settings
+
+
+@app.get("/api/devices/video")
+async def api_devices_video(request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    return await asyncio.to_thread(list_video_devices)
+
+
+@app.get("/api/devices/audio")
+async def api_devices_audio(request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    return await asyncio.to_thread(list_audio_devices)
+
+
+@app.post("/api/devices/audio/test")
+async def api_devices_audio_test(request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    data = await request.json()
+    device = data.get("device") or get_config()["capture"].get("audio_device", "default")
+    return await asyncio.to_thread(test_audio_device, device)
 
 
 @app.get("/api/camera/controls")
@@ -312,7 +339,10 @@ async def api_presets_apply(request: Request):
     if redirect := require_auth(request):
         return redirect
     data = await request.json()
-    result = apply_preset(data["name"])
+    try:
+        result = apply_preset(data["name"])
+    except KeyError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     if result.get("kind") == "csi":
         await asyncio.to_thread(capture_manager.restart)
     return result
@@ -330,7 +360,10 @@ async def api_settings_save(request: Request):
     if redirect := require_auth(request):
         return redirect
     data = await request.json()
-    saved = save_editable_settings(data)
+    try:
+        saved = save_editable_settings(data)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     await asyncio.to_thread(capture_manager.restart)
     return saved
 
@@ -344,15 +377,54 @@ async def api_recordings():
 async def api_recordings_download(path: str, request: Request):
     if redirect := require_auth(request):
         return redirect
-    file_path = Path(path)
-    cfg = get_config()
-    local_root = Path(cfg["recording"]["local_dir"]).resolve()
-    resolved = file_path.resolve()
-    if local_root not in resolved.parents and resolved != local_root:
-        return JSONResponse({"error": "Invalid path"}, status_code=400)
-    if not resolved.exists():
-        return JSONResponse({"error": "Not found"}, status_code=404)
+    try:
+        resolved = validate_recording_path(path)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     return FileResponse(resolved, filename=resolved.name)
+
+
+@app.get("/api/recordings/play")
+async def api_recordings_play(path: str, request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    try:
+        resolved = validate_recording_path(path)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return FileResponse(resolved, media_type="video/mp4")
+
+
+@app.post("/api/recordings/clip")
+async def api_recordings_clip(request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    data = await request.json()
+    try:
+        return await asyncio.to_thread(
+            create_clip,
+            data["path"],
+            float(data["start_s"]),
+            float(data["end_s"]),
+            data.get("name", "clip"),
+        )
+    except (ValueError, RuntimeError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.delete("/api/recordings/clip")
+async def api_recordings_clip_delete(path: str, request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    try:
+        return await asyncio.to_thread(delete_clip, path)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.get("/api/recordings/clips")
+async def api_recordings_clips_list():
+    return list_clips()
 
 
 @app.post("/api/sync/run")

@@ -38,6 +38,8 @@ def _defaults() -> dict[str, Any]:
             "bitrate": 4_000_000,
             "audio_enabled": False,
             "audio_device": "default",
+            "audio_rate": 48000,
+            "audio_channels": 0,
             "text_overlay": "",
             "low_latency": True,
             "rotation": 0,

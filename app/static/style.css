@@ -119,4 +119,25 @@ code { background: #0b1018; padding: 0.1rem 0.35rem; border-radius: 4px; }
 }
 .v4l2-control + .v4l2-control { margin-top: 0.5rem; }
 .v4l2-bool { display: flex; align-items: center; gap: 0.5rem; color: var(--text); }
-.v4l2-hint { min-height: 1rem; margin-top: 0.15rem; }
+.audio-meter-wrap { margin-top: 0.75rem; }
+.audio-meter-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.25rem; }
+.audio-meter-bar {
+  height: 10px;
+  background: #0b1018;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+#audio-meter-level {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+  transition: width 0.05s linear;
+}
+.audio-meter-peak {
+  height: 3px;
+  width: 0%;
+  background: #fff;
+  margin-top: 2px;
+  opacity: 0.7;
+}

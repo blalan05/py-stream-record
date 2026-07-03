@@ -35,12 +35,29 @@ class Recorder:
         self._session: RecordingSession | None = None
         self._auto_stop_timer: threading.Timer | None = None
 
+    def _alive_locked(self) -> bool:
+        """Return whether the recorder ffmpeg process is running (lock must be held)."""
+        if not self._session or not self._session.process:
+            return False
+        return self._session.process.poll() is None
+
+    def _status_locked(self) -> dict[str, Any]:
+        """Build status dict (lock must be held)."""
+        if not self._session:
+            return {"recording": False}
+        elapsed = time.time() - self._session.started_at
+        return {
+            "recording": self._alive_locked(),
+            "show_name": self._session.show_name,
+            "started_at": self._session.started_at,
+            "elapsed_seconds": int(elapsed),
+            "output_pattern": self._session.output_pattern,
+        }
+
     @property
     def is_recording(self) -> bool:
         with self._lock:
-            if not self._session or not self._session.process:
-                return False
-            return self._session.process.poll() is None
+            return self._alive_locked()
 
     def _output_path(self, show_name: str) -> tuple[Path, str]:
         cfg = get_config()
@@ -56,7 +73,7 @@ class Recorder:
 
     def start(self, show_name: str | None = None) -> dict[str, Any]:
         with self._lock:
-            if self.is_recording:
+            if self._alive_locked():
                 raise RuntimeError("Already recording")
 
             from app.system import check_disk_guard
@@ -102,7 +119,7 @@ class Recorder:
             )
             self._schedule_auto_stop()
             log.info("Recording started: %s", segment_pattern)
-            return self.status()
+            return self._status_locked()
 
     def _schedule_auto_stop(self) -> None:
         cfg = get_config()
@@ -125,7 +142,7 @@ class Recorder:
     def stop(self) -> dict[str, Any]:
         with self._lock:
             if not self._session:
-                return self.status()
+                return self._status_locked()
             proc = self._session.process
             if proc and proc.poll() is None:
                 proc.terminate()
@@ -143,9 +160,15 @@ class Recorder:
         segments = sorted(str(p) for p in segment_dir.glob(Path(pattern).name.replace("%03d", "*")))
         log.info("Recording stopped, %d segments", len(segments))
 
-        from app.sync import sync_after_show
+        def _sync_background() -> None:
+            from app.sync import sync_after_show
 
-        sync_after_show(segments)
+            try:
+                sync_after_show(segments)
+            except Exception:
+                log.exception("Background sync after show failed")
+
+        threading.Thread(target=_sync_background, daemon=True).start()
         return self.status()
 
     def restart_ffmpeg(self) -> None:
@@ -191,17 +214,7 @@ class Recorder:
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            if not self._session:
-                return {"recording": False}
-            elapsed = time.time() - self._session.started_at
-            alive = self._session.process is not None and self._session.process.poll() is None
-            return {
-                "recording": alive,
-                "show_name": self._session.show_name,
-                "started_at": self._session.started_at,
-                "elapsed_seconds": int(elapsed),
-                "output_pattern": self._session.output_pattern,
-            }
+            return self._status_locked()
 
 
 recorder = Recorder()

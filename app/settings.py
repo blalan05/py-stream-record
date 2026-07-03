@@ -151,8 +151,7 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         args.extend(["-fflags", "nobuffer"])
     if fmt:
         args.extend(["-input_format", fmt])
-    needs_reencode = capture_needs_reencode() or bool(fmt != "h264")
-    if fmt == "h264" and not needs_reencode:
+    if fmt == "h264" and not capture_needs_reencode():
         args.extend(["-use_wallclock_as_timestamps", "1"])
     args.extend(
         [
@@ -165,7 +164,15 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         ]
     )
     if cap.get("audio_enabled"):
-        args.extend(["-f", "alsa", "-i", cap.get("audio_device", "default")])
+        alsa_args = ["-thread_queue_size", "512", "-f", "alsa"]
+        audio_rate = int(cap.get("audio_rate") or 0)
+        audio_channels = int(cap.get("audio_channels") or 0)
+        if audio_rate > 0:
+            alsa_args.extend(["-ar", str(audio_rate)])
+        if audio_channels > 0:
+            alsa_args.extend(["-ac", str(audio_channels)])
+        alsa_args.extend(["-i", cap.get("audio_device", "default")])
+        args.extend(alsa_args)
 
     vf_parts: list[str] = []
     vf_parts.extend(rotation_video_filters())
@@ -284,8 +291,9 @@ def build_rpicam_args() -> list[str]:
             args.extend(["--gain", str(cam["gain"])])
     if cam.get("awb_lock") and cam.get("awb_mode"):
         args.extend(["--awb", cam["awb_mode"]])
-    if cap.get("ev"):
-        args.extend(["--ev", str(cam["ev"])])
+    ev = cam.get("ev")
+    if ev is not None and float(ev) != 0.0:
+        args.extend(["--ev", str(ev)])
     rotation = int(get_config()["capture"].get("rotation") or 0)
     if rotation in (90, 180, 270):
         args.extend(["--rotation", str(rotation)])
@@ -305,6 +313,12 @@ def get_editable_settings() -> dict[str, Any]:
 
 def save_editable_settings(payload: dict[str, Any]) -> dict[str, Any]:
     from app.config import update_config
+
+    if "capture" in payload:
+        cap = payload["capture"]
+        for field in ("width", "height", "fps", "bitrate"):
+            if field in cap and int(cap[field]) <= 0:
+                raise ValueError(f"capture.{field} must be greater than 0")
 
     for section in ("capture", "recording", "sync", "camera"):
         if section in payload:

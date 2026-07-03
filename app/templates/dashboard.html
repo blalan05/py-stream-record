@@ -16,6 +16,12 @@
     </div>
     <p class="muted">WebRTC preview from MediaMTX</p>
     <p id="preview-status" class="muted"></p>
+    <div id="audio-meter-wrap" class="audio-meter-wrap">
+      <div class="audio-meter-label">Audio</div>
+      <div class="audio-meter-bar"><div id="audio-meter-level"></div></div>
+      <div id="audio-meter-peak" class="audio-meter-peak"></div>
+      <span id="audio-meter-status" class="muted">Waiting for stream…</span>
+    </div>
   </div>
 
   <div class="card">
@@ -46,6 +52,10 @@
     <ul class="stat-list">
       <li>Stream: <span id="stream-ready">{{ "Ready" if health.stream_ready else "Waiting" }}</span></li>
       <li>Capture: <span id="capture-status">{{ "Running" if health.capture.running else "Stopped" }}</span></li>
+      <li>Bitrate: <span id="stream-bitrate">—</span></li>
+      <li>Viewers: <span id="stream-viewers">—</span></li>
+      <li>Uptime: <span id="stream-uptime">—</span></li>
+      <li>Tracks: <span id="stream-tracks">—</span></li>
       <li>Disk free: <span id="disk-free">{{ health.disk.free_gb }} GB</span></li>
       <li>CPU temp: <span id="cpu-temp">{{ health.cpu_temp_c or "N/A" }}</span> °C</li>
       <li>Sync pending: <span id="sync-pending">{{ health.sync.pending_count }}</span></li>

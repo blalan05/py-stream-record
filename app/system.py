@@ -80,22 +80,47 @@ def mediamtx_ready() -> bool:
         return False
 
 
-def stream_ready() -> bool:
+def stream_path_info() -> dict[str, Any]:
     cfg = get_config()
+    path = cfg["mediamtx"]["stream_path"]
+    info: dict[str, Any] = {
+        "ready": False,
+        "bytes_received": 0,
+        "readers": 0,
+        "tracks": [],
+        "ready_time": None,
+    }
     try:
         import httpx
 
-        path = cfg["mediamtx"]["stream_path"]
         r = httpx.get(
             f"{cfg['mediamtx']['api_url']}/v3/paths/get/{path}",
             timeout=2.0,
         )
         if r.status_code != 200:
-            return False
+            return info
         data = r.json()
-        return bool(data.get("ready"))
+        info["ready"] = bool(data.get("ready"))
+        info["bytes_received"] = int(data.get("bytesReceived") or 0)
+        info["readers"] = len(data.get("readers") or [])
+        info["ready_time"] = data.get("readyTime")
+        tracks = []
+        for track in data.get("tracks") or []:
+            tracks.append(
+                {
+                    "type": track.get("type"),
+                    "codec": track.get("codec"),
+                    "id": track.get("id"),
+                }
+            )
+        info["tracks"] = tracks
     except Exception:
-        return False
+        pass
+    return info
+
+
+def stream_ready() -> bool:
+    return stream_path_info()["ready"]
 
 
 def health_snapshot() -> dict[str, Any]:
@@ -103,6 +128,7 @@ def health_snapshot() -> dict[str, Any]:
     from app.recorder import recorder
     from app.sync import sync_status
 
+    stream = stream_path_info()
     return {
         "timestamp": time.time(),
         "cpu_temp_c": _cpu_temp_c(),
@@ -111,7 +137,8 @@ def health_snapshot() -> dict[str, Any]:
         "capture": capture_manager.status(),
         "recording": recorder.status(),
         "mediamtx_api": mediamtx_ready(),
-        "stream_ready": stream_ready(),
+        "stream_ready": stream["ready"],
+        "stream": stream,
         "sync": sync_status(),
     }
 

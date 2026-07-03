@@ -23,6 +23,8 @@ capture:
   bitrate: 4000000
   audio_enabled: false
   audio_device: "default"
+  audio_rate: 48000
+  audio_channels: 0
   text_overlay: ""
   low_latency: true
   rotation: 0

@@ -1,11 +1,18 @@
 async function postForm(url, data = {}) {
   const body = new URLSearchParams(data);
-  const resp = await fetch(url, { method: "POST", body });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error || resp.statusText);
+  const resp = await fetch(url, { method: "POST", body, credentials: "same-origin" });
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    if (resp.redirected || resp.url.includes("/login")) {
+      throw new Error("Session expired — log in again.");
+    }
+    throw new Error(`Unexpected response (${resp.status})`);
   }
-  return resp.json();
+  const payload = await resp.json();
+  if (!resp.ok) {
+    throw new Error(payload.error || resp.statusText);
+  }
+  return payload;
 }
 
 async function postJson(url, data) {
@@ -23,6 +30,8 @@ async function postJson(url, data) {
 
 const isUsbCamera = () => window.THEATER_CAPTURE_SOURCE === "usb";
 let v4l2Panel = null;
+let lastStreamBytes = null;
+let lastStreamTimestamp = null;
 
 function showName() {
   return document.getElementById("show-name").value.trim();
@@ -46,16 +55,65 @@ function updateRecordStatus(data) {
   updateRecBadge(data.recording);
 }
 
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function formatBitrate(bps) {
+  if (bps == null || Number.isNaN(bps) || bps <= 0) return "—";
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+  return `${Math.round(bps / 1000)} kbps`;
+}
+
+function formatUptime(readyTime) {
+  if (!readyTime) return "—";
+  const start = new Date(readyTime).getTime();
+  if (Number.isNaN(start)) return "—";
+  const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function updateStreamStats(stream) {
+  if (!stream) return;
+  setText("stream-viewers", String(stream.readers ?? 0));
+  setText("stream-uptime", stream.ready ? formatUptime(stream.ready_time) : "—");
+  const trackLabels = (stream.tracks || [])
+    .map((t) => `${t.type || "?"}${t.codec ? ` (${t.codec})` : ""}`)
+    .join(", ");
+  setText("stream-tracks", trackLabels || "—");
+
+  const bytes = stream.bytes_received ?? 0;
+  const now = Date.now() / 1000;
+  if (lastStreamBytes != null && lastStreamTimestamp != null && bytes >= lastStreamBytes) {
+    const deltaBytes = bytes - lastStreamBytes;
+    const deltaTime = now - lastStreamTimestamp;
+    if (deltaTime > 0) {
+      setText("stream-bitrate", formatBitrate((deltaBytes * 8) / deltaTime));
+    }
+  } else if (!stream.ready) {
+    setText("stream-bitrate", "—");
+  }
+  lastStreamBytes = bytes;
+  lastStreamTimestamp = now;
+}
+
 async function refreshHealth() {
   try {
     const resp = await fetch("/api/health");
     if (!resp.ok) return;
     const h = await resp.json();
-    document.getElementById("stream-ready")?.textContent = h.stream_ready ? "Ready" : "Waiting";
-    document.getElementById("capture-status")?.textContent = h.capture.running ? "Running" : "Stopped";
-    document.getElementById("disk-free")?.textContent = `${h.disk.free_gb} GB`;
-    document.getElementById("cpu-temp")?.textContent = h.cpu_temp_c ?? "N/A";
-    document.getElementById("sync-pending")?.textContent = h.sync.pending_count;
+    setText("stream-ready", h.stream_ready ? "Ready" : "Waiting");
+    setText("capture-status", h.capture.running ? "Running" : "Stopped");
+    updateStreamStats(h.stream);
+    setText("disk-free", `${h.disk.free_gb} GB`);
+    setText("cpu-temp", h.cpu_temp_c ?? "N/A");
+    setText("sync-pending", h.sync.pending_count);
     updateRecordStatus(h.recording);
 
     const previewStatus = document.getElementById("preview-status");
@@ -82,31 +140,59 @@ function csiCameraPayload() {
   };
 }
 
+function setRecordButtonsBusy(busy) {
+  for (const id of ["btn-start", "btn-start-show", "btn-stop"]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = busy;
+  }
+}
+
 document.getElementById("btn-start")?.addEventListener("click", async () => {
+  setRecordButtonsBusy(true);
   try {
     const data = await postForm("/api/recording/start", { show_name: showName() });
     updateRecordStatus(data);
   } catch (e) {
-    alert(e.message);
+    alert(e.message || String(e));
+  } finally {
+    setRecordButtonsBusy(false);
   }
 });
 
 document.getElementById("btn-stop")?.addEventListener("click", async () => {
-  const data = await postForm("/api/recording/stop");
-  updateRecordStatus(data);
+  setRecordButtonsBusy(true);
+  try {
+    const data = await postForm("/api/recording/stop");
+    updateRecordStatus(data);
+  } catch (e) {
+    alert(e.message || String(e));
+  } finally {
+    setRecordButtonsBusy(false);
+  }
 });
 
 document.getElementById("btn-start-show")?.addEventListener("click", async () => {
   const preset = document.getElementById("preset-select")?.value || "";
+  setRecordButtonsBusy(true);
   try {
     const body = new URLSearchParams({ show_name: showName(), preset });
-    const resp = await fetch("/api/start-show", { method: "POST", body });
+    const resp = await fetch("/api/start-show", {
+      method: "POST",
+      body,
+      credentials: "same-origin",
+    });
+    const contentType = resp.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("Session expired — log in again.");
+    }
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Start show failed");
     updateRecordStatus(data.recording);
     alert("Show started — stream verified and recording.");
   } catch (e) {
-    alert(e.message);
+    alert(e.message || String(e));
+  } finally {
+    setRecordButtonsBusy(false);
   }
 });
 

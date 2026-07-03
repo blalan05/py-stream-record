@@ -5,7 +5,7 @@ import secrets
 
 from fastapi import Request
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 
 from app.config import get_config
 
@@ -27,7 +27,8 @@ def install_session_middleware(app) -> None:
 
 
 def verify_pin(pin: str) -> bool:
-    return pin == get_config()["app"].get("pin", "")
+    configured = get_config()["app"].get("pin", "")
+    return str(pin) == str(configured)
 
 
 def is_authenticated(request: Request) -> bool:
@@ -45,9 +46,11 @@ def logout(request: Request) -> None:
     request.session.pop(SESSION_KEY, None)
 
 
-def require_auth(request: Request) -> RedirectResponse | None:
+def require_auth(request: Request) -> RedirectResponse | JSONResponse | None:
     if is_authenticated(request):
         return None
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
     return RedirectResponse("/login", status_code=303)
 
 
