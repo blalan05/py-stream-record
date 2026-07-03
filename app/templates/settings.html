@@ -64,6 +64,7 @@
   <select id="audio-device-select"></select>
   <input type="hidden" name="capture.audio_device" value="{{ settings.capture.audio_device }}">
   <p class="muted">On Raspberry Pi, avoid <code>default</code> — pick a <code>plughw:X,Y</code> USB interface from the list.</p>
+  <p class="muted">Test mic before enabling audio. Once capture is running with audio, the device is in use — use the dashboard audio meter instead.</p>
   <div class="grid two">
     <div>
       <label>Audio sample rate (Hz, 0 = device default)</label>

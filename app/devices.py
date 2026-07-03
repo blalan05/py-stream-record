@@ -182,9 +182,17 @@ def list_audio_devices() -> dict[str, Any]:
     return {"available": True, "devices": devices, "recommended": recommended}
 
 
-def _friendly_alsa_error(device: str, output: str, returncode: int) -> str:
+def _friendly_alsa_error(device: str, output: str, returncode: int, busy_hint: str | None = None) -> str:
+    if busy_hint:
+        return busy_hint
     lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
     tail = "; ".join(lines[-2:]) if lines else f"ffmpeg exited {returncode}"
+    lower = tail.lower()
+    if "busy" in lower or "input/output error" in lower:
+        return (
+            f"{tail}. The device may be in use (capture holds it when audio is enabled). "
+            "Uncheck Audio enabled, save, then test mic — or use the dashboard audio meter while streaming."
+        )
     if device == "default":
         info = list_audio_devices()
         suggested = info.get("recommended")
@@ -196,16 +204,50 @@ def _friendly_alsa_error(device: str, output: str, returncode: int) -> str:
     return tail
 
 
-def test_audio_device(
-    device: str,
-    duration: float = 2.0,
-    sample_rate: int = 0,
-    channels: int = 0,
-) -> dict[str, Any]:
-    """Capture briefly and report volume levels via ffmpeg volumedetect."""
-    if not shutil.which("ffmpeg"):
-        return {"ok": False, "error": "ffmpeg not found"}
+def _capture_using_device(device: str) -> str | None:
+    """Return a user message if live capture already has this ALSA device open."""
+    try:
+        from app.capture import capture_manager
+        from app.config import get_config
+        from app.settings import effective_audio_device
 
+        cfg = get_config()
+        if not cfg["capture"].get("audio_enabled") or not capture_manager.state.running:
+            return None
+        active = effective_audio_device()
+        candidates = {device, active, cfg["capture"].get("audio_device", "")}
+        normalized = {c.replace("plughw:", "hw:") for c in candidates if c}
+        if device.replace("plughw:", "hw:") in normalized or device in candidates:
+            return (
+                "This mic is already open for live capture (only one app can use it at a time). "
+                "If capture is running, check the dashboard audio meter instead. "
+                "To run Test mic: uncheck Audio enabled, save settings, test, then re-enable."
+            )
+    except Exception:
+        pass
+    return None
+
+
+def _arecord_probe(device: str, seconds: float = 1.0, sample_rate: int = 0) -> tuple[bool, str]:
+    cmd = ["arecord", "-D", device, "-d", str(max(1, int(seconds))), "-f", "S16_LE", "-t", "raw", "-q"]
+    if sample_rate > 0:
+        cmd.extend(["-r", str(sample_rate)])
+    cmd.append("/dev/null")
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=seconds + 8, check=False)
+    except subprocess.TimeoutExpired:
+        return False, "arecord timed out"
+    if proc.returncode == 0:
+        return True, ""
+    return False, (proc.stderr or proc.stdout or "").strip()
+
+
+def _ffmpeg_volumedetect(
+    device: str,
+    duration: float,
+    sample_rate: int,
+    channels: int,
+) -> dict[str, Any]:
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", "-f", "alsa"]
     if sample_rate > 0:
         cmd.extend(["-ar", str(sample_rate)])
@@ -213,13 +255,17 @@ def test_audio_device(
         cmd.extend(["-ac", str(channels)])
     cmd.extend(["-i", device, "-t", str(duration), "-af", "volumedetect", "-f", "null", "-"])
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 10, check=False)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 15, check=False)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "Mic test timed out"}
+        return {"ok": False, "error": "Mic test timed out", "device": device}
 
     output = (proc.stderr or "") + (proc.stdout or "")
     if proc.returncode != 0:
-        return {"ok": False, "error": _friendly_alsa_error(device, output, proc.returncode), "device": device}
+        return {
+            "ok": False,
+            "error": _friendly_alsa_error(device, output, proc.returncode),
+            "device": device,
+        }
 
     mean_volume: float | None = None
     max_volume: float | None = None
@@ -247,4 +293,46 @@ def test_audio_device(
             if signal
             else "Very quiet or silent — check device and input gain"
         ),
+    }
+
+
+def test_audio_device(
+    device: str,
+    duration: float = 2.0,
+    sample_rate: int = 0,
+    channels: int = 0,
+) -> dict[str, Any]:
+    """Capture briefly and report volume levels via ffmpeg volumedetect."""
+    busy = _capture_using_device(device)
+    if busy:
+        return {"ok": False, "error": busy, "device": device, "busy": True}
+
+    if not shutil.which("ffmpeg"):
+        return {"ok": False, "error": "ffmpeg not found"}
+
+    # Try device-native settings first, then configured rate/channels.
+    attempts: list[tuple[int, int]] = [(0, 0)]
+    if sample_rate > 0 or channels > 0:
+        attempts.append((sample_rate, channels))
+
+    last_error = "Could not open audio device"
+    for rate, ch in attempts:
+        ok, err = _arecord_probe(device, seconds=1.0, sample_rate=rate)
+        if not ok:
+            last_error = err or last_error
+            continue
+        result = _ffmpeg_volumedetect(device, duration, rate, ch)
+        if result.get("ok"):
+            if rate == 0 and (sample_rate > 0 or channels > 0):
+                result["message"] = (
+                    f"{result.get('message', 'OK')} "
+                    f"(device native rate; saved setting {sample_rate or 'auto'} Hz also works)"
+                )
+            return result
+        last_error = result.get("error", last_error)
+
+    return {
+        "ok": False,
+        "error": _friendly_alsa_error(device, last_error, 1, busy_hint=busy),
+        "device": device,
     }
