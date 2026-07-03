@@ -14,6 +14,7 @@ from app.settings import (
     save_editable_settings,
     save_preset,
     update_camera_settings,
+    usb_ffmpeg_format_candidates,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "save_editable_settings",
     "save_preset",
     "update_camera_settings",
+    "usb_ffmpeg_format_candidates",
 ]

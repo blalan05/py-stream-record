@@ -8,8 +8,14 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from app.camera import build_rpicam_args, build_usb_ffmpeg_args, resolve_capture_source
+from app.camera import (
+    build_rpicam_args,
+    build_usb_ffmpeg_args,
+    resolve_capture_source,
+    usb_ffmpeg_format_candidates,
+)
 from app.config import get_config
+from app.system import mediamtx_ready
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +34,64 @@ class CaptureManager:
         self._lock = threading.Lock()
         self._video_proc: subprocess.Popen[bytes] | None = None
         self._ffmpeg: subprocess.Popen[bytes] | None = None
+        self._stderr_thread: threading.Thread | None = None
         self._source: str = "dev"
         self.state = CaptureState()
+
+    def _wait_for_mediamtx(self, timeout: float = 30.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if mediamtx_ready():
+                return True
+            time.sleep(0.5)
+        return False
+
+    def _spawn_ffmpeg(self, cmd: list[str]) -> subprocess.Popen[bytes]:
+        proc = subprocess.Popen(
+            cmd,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+        )
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            args=(proc,),
+            daemon=True,
+        )
+        self._stderr_thread.start()
+        return proc
+
+    def _drain_stderr(self, proc: subprocess.Popen[bytes]) -> None:
+        if not proc.stderr:
+            return
+        lines: list[str] = []
+        for raw in proc.stderr:
+            line = raw.decode("utf-8", errors="replace").rstrip()
+            if line:
+                lines.append(line)
+                log.warning("ffmpeg: %s", line)
+        if proc.poll() is not None and lines:
+            self.state.last_error = "\n".join(lines[-8:])
+
+    def _start_usb_capture(self) -> None:
+        errors: list[str] = []
+        for fmt in usb_ffmpeg_format_candidates():
+            label = fmt or "auto"
+            cmd = build_usb_ffmpeg_args(video_format=fmt)
+            log.info("USB capture trying format=%s: %s", label, " ".join(cmd))
+            proc = self._spawn_ffmpeg(cmd)
+            time.sleep(2.0)
+            if proc.poll() is None:
+                self._ffmpeg = proc
+                if fmt and fmt != (get_config()["capture"].get("video_format") or "").strip().lower():
+                    log.warning("USB capture succeeded with format=%s (update config to match)", label)
+                return
+            proc.wait(timeout=2)
+            msg = self.state.last_error or f"ffmpeg exited {proc.returncode}"
+            errors.append(f"[{label}] {msg}")
+            log.warning("USB capture failed format=%s: %s", label, msg)
+        joined = " | ".join(errors)
+        self.state.last_error = joined
+        raise RuntimeError(f"USB capture failed: {joined}")
 
     def _dev_ffmpeg_cmd(self) -> list[str]:
         cfg = get_config()
@@ -101,18 +163,16 @@ class CaptureManager:
                 self._source = source
                 if not shutil.which("ffmpeg"):
                     raise FileNotFoundError("ffmpeg not found")
+                if not self._wait_for_mediamtx():
+                    raise RuntimeError("MediaMTX not ready (is mediamtx.service running?)")
 
                 if source == "dev":
-                    self._ffmpeg = subprocess.Popen(self._dev_ffmpeg_cmd())
+                    cmd = self._dev_ffmpeg_cmd()
+                    log.info("Dev capture ffmpeg: %s", " ".join(cmd))
+                    self._ffmpeg = self._spawn_ffmpeg(cmd)
                     self._video_proc = None
                 elif source == "usb":
-                    cmd = build_usb_ffmpeg_args()
-                    log.info("USB capture ffmpeg: %s", " ".join(cmd))
-                    self._ffmpeg = subprocess.Popen(
-                        cmd,
-                        stderr=subprocess.PIPE,
-                        stdout=subprocess.DEVNULL,
-                    )
+                    self._start_usb_capture()
                     self._video_proc = None
                 else:
                     rpicam_cmd, ffmpeg_cmd = self._pi_pipeline_cmd()
@@ -134,9 +194,9 @@ class CaptureManager:
                 self.state.started_at = time.time()
                 self.state.last_error = None
                 log.info("Capture started (source=%s, pid=%s)", source, self.state.pid)
-            except FileNotFoundError as exc:
+            except (FileNotFoundError, RuntimeError) as exc:
                 self.state.last_error = str(exc)
-                log.error("Capture binary missing: %s", exc)
+                log.error("Capture start failed: %s", exc)
                 raise
 
     def stop(self) -> None:

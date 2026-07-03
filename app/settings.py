@@ -80,7 +80,7 @@ def resolve_capture_source() -> str:
     return source
 
 
-def build_usb_ffmpeg_args() -> list[str]:
+def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
     cfg = get_config()
     cap = cfg["capture"]
     rtsp = cfg["mediamtx"]["rtsp_url"]
@@ -92,7 +92,10 @@ def build_usb_ffmpeg_args() -> list[str]:
         "-f",
         "v4l2",
     ]
-    fmt = (cap.get("video_format") or "").strip().lower()
+    if video_format is None:
+        fmt = (cap.get("video_format") or "").strip().lower()
+    else:
+        fmt = video_format.strip().lower()
     if cap.get("low_latency"):
         args.extend(["-fflags", "nobuffer"])
     if fmt:
@@ -158,6 +161,18 @@ def build_usb_ffmpeg_args() -> list[str]:
         ]
     )
     return args
+
+
+def usb_ffmpeg_format_candidates() -> list[str]:
+    """Try configured format first, then common USB camera formats."""
+    configured = (get_config()["capture"].get("video_format") or "").strip().lower()
+    candidates: list[str] = []
+    if configured:
+        candidates.append(configured)
+    for fmt in ("h264", "mjpeg", ""):
+        if fmt not in candidates:
+            candidates.append(fmt)
+    return candidates
 
 
 def build_rpicam_args() -> list[str]:
