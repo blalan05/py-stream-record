@@ -63,6 +63,7 @@
   <label>Audio device (ALSA)</label>
   <select id="audio-device-select"></select>
   <input type="hidden" name="capture.audio_device" value="{{ settings.capture.audio_device }}">
+  <p class="muted">On Raspberry Pi, avoid <code>default</code> — pick a <code>plughw:X,Y</code> USB interface from the list.</p>
   <div class="grid two">
     <div>
       <label>Audio sample rate (Hz, 0 = device default)</label>

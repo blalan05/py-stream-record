@@ -273,6 +273,7 @@ class CaptureManager:
             "source": source,
             "dev_mode": source == "dev",
             "audio_enabled": cfg["capture"].get("audio_enabled", False),
+            "audio_device": cfg["capture"].get("audio_device"),
             "resolution": f"{cfg['capture']['width']}x{cfg['capture']['height']}@{cfg['capture']['fps']}",
         }
 

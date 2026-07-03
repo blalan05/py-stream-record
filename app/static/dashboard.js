@@ -117,7 +117,10 @@ async function refreshHealth() {
     updateRecordStatus(h.recording);
 
     const previewStatus = document.getElementById("preview-status");
-    if (previewStatus && !h.stream_ready && h.capture.last_error) {
+    if (previewStatus && h.capture?.audio_enabled && h.stream_ready && !h.stream_has_audio) {
+      previewStatus.textContent = "Audio enabled but stream has no audio track — check ALSA device in Settings";
+      previewStatus.style.color = "#f88";
+    } else if (previewStatus && !h.stream_ready && h.capture.last_error) {
       previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
       previewStatus.style.color = "#f88";
     } else if (previewStatus && !h.stream_ready && !previewStatus.textContent.startsWith("Connecting")) {

@@ -131,6 +131,24 @@ def capture_needs_reencode() -> bool:
     return bool(rotation_video_filters()) or bool(cap.get("text_overlay"))
 
 
+def effective_audio_device() -> str:
+    """Resolve ALSA device; replace broken 'default' with first plughw capture device."""
+    cap = get_config()["capture"]
+    device = (cap.get("audio_device") or "default").strip()
+    if device != "default":
+        return device
+    try:
+        from app.devices import list_audio_devices
+
+        recommended = list_audio_devices().get("recommended")
+        if recommended and recommended != "default":
+            log.info("Resolved audio device default -> %s", recommended)
+            return recommended
+    except Exception:
+        log.exception("Could not resolve ALSA default device")
+    return device
+
+
 def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
     cfg = get_config()
     cap = cfg["capture"]
@@ -147,14 +165,17 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         fmt = (cap.get("video_format") or "").strip().lower()
     else:
         fmt = video_format.strip().lower()
-    if cap.get("low_latency"):
+    if cap.get("low_latency") and not cap.get("audio_enabled"):
         args.extend(["-fflags", "nobuffer"])
     if fmt:
         args.extend(["-input_format", fmt])
-    if fmt == "h264" and not capture_needs_reencode():
+    passthrough = fmt == "h264" and not capture_needs_reencode()
+    if passthrough and not cap.get("audio_enabled"):
         args.extend(["-use_wallclock_as_timestamps", "1"])
     args.extend(
         [
+            "-thread_queue_size",
+            "512",
             "-video_size",
             f"{cap['width']}x{cap['height']}",
             "-framerate",
@@ -171,7 +192,7 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
             alsa_args.extend(["-ar", str(audio_rate)])
         if audio_channels > 0:
             alsa_args.extend(["-ac", str(audio_channels)])
-        alsa_args.extend(["-i", cap.get("audio_device", "default")])
+        alsa_args.extend(["-i", effective_audio_device()])
         args.extend(alsa_args)
 
     vf_parts: list[str] = []
@@ -188,10 +209,12 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
 
     args.extend(["-map", "0:v"])
     if cap.get("audio_enabled"):
-        args.extend(["-map", "1:a?"])
+        args.extend(["-map", "1:a:0"])
 
     if fmt == "h264" and not vf_parts:
         args.extend(["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"])
+        if cap.get("audio_enabled"):
+            args.extend(["-vsync", "passthrough"])
     else:
         args.extend(
             [
@@ -208,11 +231,28 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
             ]
         )
     if cap.get("audio_enabled"):
-        args.extend(["-c:a", "aac"])
+        out_rate = int(cap.get("audio_rate") or 48000)
+        out_channels = int(cap.get("audio_channels") or 2) or 2
+        args.extend(
+            [
+                "-af",
+                "aresample=async=1000:first_pts=0",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-ar",
+                str(out_rate),
+                "-ac",
+                str(out_channels),
+            ]
+        )
     else:
         args.append("-an")
     args.extend(
         [
+            "-max_muxing_queue_size",
+            "1024",
             "-f",
             "rtsp",
             "-rtsp_transport",
@@ -275,7 +315,7 @@ def build_rpicam_args() -> list[str]:
     if cap.get("low_latency"):
         args.append("--low-latency")
     if cap.get("audio_enabled"):
-        args.extend(["--libav-audio", "--audio-device", cap.get("audio_device", "default")])
+        args.extend(["--libav-audio", "--audio-device", effective_audio_device()])
 
     af_mode = cam.get("af_mode", "continuous")
     if af_mode:
@@ -319,6 +359,14 @@ def save_editable_settings(payload: dict[str, Any]) -> dict[str, Any]:
         for field in ("width", "height", "fps", "bitrate"):
             if field in cap and int(cap[field]) <= 0:
                 raise ValueError(f"capture.{field} must be greater than 0")
+        if cap.get("audio_enabled"):
+            device = (cap.get("audio_device") or "default").strip()
+            if device == "default":
+                from app.devices import list_audio_devices
+
+                recommended = list_audio_devices().get("recommended")
+                if recommended and recommended != "default":
+                    cap["audio_device"] = recommended
 
     for section in ("capture", "recording", "sync", "camera"):
         if section in payload:

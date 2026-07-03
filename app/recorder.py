@@ -19,6 +19,53 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", text.strip()) or "show"
 
 
+def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) -> list[str]:
+    """Record from RTSP with stream copy; tuned to avoid timestamp stutter in MP4 segments."""
+    cfg = get_config()
+    ext = cfg["recording"].get("container", "mp4")
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-rtsp_transport",
+        "tcp",
+        "-thread_queue_size",
+        "1024",
+        "-fflags",
+        "+genpts+discardcorrupt",
+        "-i",
+        rtsp,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-c",
+        "copy",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-max_muxing_queue_size",
+        "1024",
+        "-f",
+        "segment",
+        "-segment_time",
+        str(segment_seconds),
+        "-break_non_keyframes",
+        "0",
+    ]
+    if ext == "mp4":
+        cmd.extend(
+            [
+                "-segment_format",
+                "mp4",
+                "-segment_format_options",
+                "movflags=+frag_keyframe+empty_moov+default_base_moof",
+            ]
+        )
+    cmd.append(segment_pattern)
+    return cmd
+
+
 @dataclass
 class RecordingSession:
     show_name: str
@@ -88,27 +135,7 @@ class Recorder:
             rtsp = cfg["mediamtx"]["rtsp_url"]
             segment_seconds = int(cfg["recording"].get("segment_seconds", 600))
 
-            cmd = [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                rtsp,
-                "-c",
-                "copy",
-                "-f",
-                "segment",
-                "-segment_time",
-                str(segment_seconds),
-                "-reset_timestamps",
-                "1",
-                "-strftime",
-                "0",
-                segment_pattern,
-            ]
+            cmd = _recorder_ffmpeg_cmd(rtsp, segment_pattern, segment_seconds)
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self._session = RecordingSession(
                 show_name=show,
@@ -188,27 +215,7 @@ class Recorder:
             cfg = get_config()
             rtsp = cfg["mediamtx"]["rtsp_url"]
             segment_seconds = int(cfg["recording"].get("segment_seconds", 600))
-            cmd = [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                rtsp,
-                "-c",
-                "copy",
-                "-f",
-                "segment",
-                "-segment_time",
-                str(segment_seconds),
-                "-reset_timestamps",
-                "1",
-                "-strftime",
-                "0",
-                pattern,
-            ]
+            cmd = _recorder_ffmpeg_cmd(rtsp, pattern, segment_seconds)
             self._session.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             log.warning("Recorder ffmpeg restarted mid-session")
 

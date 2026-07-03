@@ -123,6 +123,11 @@ def stream_ready() -> bool:
     return stream_path_info()["ready"]
 
 
+def stream_has_audio() -> bool:
+    tracks = stream_path_info().get("tracks") or []
+    return any(t.get("type") == "audio" for t in tracks)
+
+
 def health_snapshot() -> dict[str, Any]:
     from app.capture import capture_manager
     from app.recorder import recorder
@@ -138,6 +143,9 @@ def health_snapshot() -> dict[str, Any]:
         "recording": recorder.status(),
         "mediamtx_api": mediamtx_ready(),
         "stream_ready": stream["ready"],
+        "stream_has_audio": any(
+            str(t.get("type", "")).lower() == "audio" for t in stream.get("tracks") or []
+        ),
         "stream": stream,
         "sync": sync_status(),
     }

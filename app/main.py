@@ -306,8 +306,10 @@ async def api_devices_audio_test(request: Request):
     except Exception:
         data = {}
     device = data.get("device") or get_config()["capture"].get("audio_device", "default")
+    sample_rate = int(data.get("sample_rate") or get_config()["capture"].get("audio_rate") or 0)
+    channels = int(data.get("channels") or get_config()["capture"].get("audio_channels") or 0)
     try:
-        return await asyncio.to_thread(test_audio_device, device)
+        return await asyncio.to_thread(test_audio_device, device, 2.0, sample_rate, channels)
     except Exception as exc:
         log.exception("Mic test failed")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

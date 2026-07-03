@@ -201,7 +201,17 @@ async function loadDeviceLists() {
       if (!audioDevices.some((d) => d.alsa === currentAudio)) {
         audioSelect.appendChild(option(currentAudio, `${currentAudio} (custom)`, true));
       }
-      audioSelect.value = currentAudio;
+      let selectedAudio = currentAudio;
+      if (
+        audioData.recommended &&
+        audioData.recommended !== "default" &&
+        (currentAudio === "default" || !audioDevices.some((d) => d.alsa === currentAudio))
+      ) {
+        selectedAudio = audioData.recommended;
+      }
+      audioSelect.value = selectedAudio;
+      const audioHidden = document.querySelector('input[name="capture.audio_device"]');
+      if (audioHidden) audioHidden.value = selectedAudio;
     }
 
     syncVideoModeDropdowns();
@@ -251,13 +261,15 @@ document.getElementById("btn-test-mic")?.addEventListener("click", async () => {
   const device = document.getElementById("audio-device-select")?.value
     || document.querySelector('input[name="capture.audio_device"]')?.value
     || "default";
+  const sampleRate = Number(document.querySelector('input[name="capture.audio_rate"]')?.value || 0);
+  const channels = Number(document.querySelector('input[name="capture.audio_channels"]')?.value || 0);
   if (msg) msg.textContent = "Testing mic (2s)…";
   try {
     const resp = await fetch("/api/devices/audio/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ device }),
+      body: JSON.stringify({ device, sample_rate: sampleRate, channels }),
     });
     const data = await readJson(resp);
     if (!resp.ok || !data.ok) {

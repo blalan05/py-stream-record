@@ -13,7 +13,29 @@ _DEVICE_PATH_RE = re.compile(r"^\s*(/dev/video\d+)\s*$")
 _FORMAT_RE = re.compile(r"^\s*\[\d+\]:\s+'([^']+)'")
 _SIZE_RE = re.compile(r"^\s*Size:\s+Discrete\s+(\d+)x(\d+)")
 _FPS_RE = re.compile(r"^\s*Interval:\s+(?:Discrete|Continuous)\s+[\d.s]+\s*\(([\d.]+)\s*fps\)")
-_ARECORD_CARD_RE = re.compile(r"^card (\d+): (.+?) \[(.+?)\], device (\d+): (.+?) \[(.+?)\]")
+_ARECORD_CARD_RE = re.compile(
+    r"^card\s+(\d+):\s*(.+?),\s*device\s+(\d+):\s*(.+)$",
+    re.IGNORECASE,
+)
+
+
+def _parse_arecord_line(line: str) -> dict[str, Any] | None:
+    match = _ARECORD_CARD_RE.match(line.strip())
+    if not match:
+        return None
+    card = match.group(1)
+    card_desc = match.group(2).strip()
+    device = match.group(3)
+    device_desc = match.group(4).strip()
+    card_name = card_desc.split("[", 1)[0].strip() or card_desc
+    device_name = device_desc.split("[", 1)[0].strip() or device_desc
+    alsa = f"plughw:{card},{device}"
+    return {
+        "alsa": alsa,
+        "name": f"{card_name} — {device_name} ({alsa})",
+        "card": int(card),
+        "device": int(device),
+    }
 
 
 def _run(cmd: list[str], timeout: float = 10.0) -> subprocess.CompletedProcess[str]:
@@ -125,63 +147,71 @@ def list_video_devices() -> dict[str, Any]:
 
 def list_audio_devices() -> dict[str, Any]:
     """Return ALSA capture devices suitable for ffmpeg -f alsa."""
-    devices: list[dict[str, Any]] = [{"alsa": "default", "name": "System default"}]
+    hardware: list[dict[str, Any]] = []
 
     if not shutil.which("arecord"):
         return {
             "available": False,
             "error": "arecord not installed (sudo apt install alsa-utils)",
-            "devices": devices,
+            "devices": [{"alsa": "default", "name": "System default"}],
+            "recommended": "default",
         }
 
     proc = _run(["arecord", "-l"])
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
-        return {"available": False, "error": err or "arecord failed", "devices": devices}
+        return {
+            "available": False,
+            "error": err or "arecord failed",
+            "devices": [{"alsa": "default", "name": "System default"}],
+            "recommended": "default",
+        }
 
     for line in proc.stdout.splitlines():
-        match = _ARECORD_CARD_RE.match(line.strip())
-        if not match:
-            continue
-        card = match.group(1)
-        card_name = match.group(2)
-        device = match.group(4)
-        device_name = match.group(5)
-        alsa = f"plughw:{card},{device}"
-        devices.append(
-            {
-                "alsa": alsa,
-                "name": f"{card_name} — {device_name} ({alsa})",
-                "card": int(card),
-                "device": int(device),
-            }
-        )
+        item = _parse_arecord_line(line)
+        if item:
+            hardware.append(item)
 
-    return {"available": True, "devices": devices}
+    devices = hardware + [
+        {
+            "alsa": "default",
+            "name": "System default (often fails on Pi — prefer plughw above)",
+        }
+    ]
+    recommended = hardware[0]["alsa"] if hardware else "default"
+    return {"available": True, "devices": devices, "recommended": recommended}
 
 
-def test_audio_device(device: str, duration: float = 2.0) -> dict[str, Any]:
+def _friendly_alsa_error(device: str, output: str, returncode: int) -> str:
+    lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
+    tail = "; ".join(lines[-2:]) if lines else f"ffmpeg exited {returncode}"
+    if device == "default":
+        info = list_audio_devices()
+        suggested = info.get("recommended")
+        if suggested and suggested != "default":
+            return (
+                f"{tail}. On Raspberry Pi, 'default' usually fails — "
+                f"select '{suggested}' from the dropdown instead."
+            )
+    return tail
+
+
+def test_audio_device(
+    device: str,
+    duration: float = 2.0,
+    sample_rate: int = 0,
+    channels: int = 0,
+) -> dict[str, Any]:
     """Capture briefly and report volume levels via ffmpeg volumedetect."""
     if not shutil.which("ffmpeg"):
         return {"ok": False, "error": "ffmpeg not found"}
 
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "info",
-        "-f",
-        "alsa",
-        "-i",
-        device,
-        "-t",
-        str(duration),
-        "-af",
-        "volumedetect",
-        "-f",
-        "null",
-        "-",
-    ]
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", "-f", "alsa"]
+    if sample_rate > 0:
+        cmd.extend(["-ar", str(sample_rate)])
+    if channels > 0:
+        cmd.extend(["-ac", str(channels)])
+    cmd.extend(["-i", device, "-t", str(duration), "-af", "volumedetect", "-f", "null", "-"])
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 10, check=False)
     except subprocess.TimeoutExpired:
@@ -189,8 +219,7 @@ def test_audio_device(device: str, duration: float = 2.0) -> dict[str, Any]:
 
     output = (proc.stderr or "") + (proc.stdout or "")
     if proc.returncode != 0:
-        tail = output.strip().splitlines()[-3:]
-        return {"ok": False, "error": "; ".join(tail) or f"ffmpeg exited {proc.returncode}"}
+        return {"ok": False, "error": _friendly_alsa_error(device, output, proc.returncode), "device": device}
 
     mean_volume: float | None = None
     max_volume: float | None = None
