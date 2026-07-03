@@ -94,7 +94,7 @@
 </form>
 {% endblock %}
 {% block scripts %}
-<script src="/static/settings.js"></script>
+<script src="/static/settings.js?v={{ asset_v }}"></script>
 <script>
   const sourceSelect = document.getElementById("capture-source");
   const usbFields = document.getElementById("usb-fields");

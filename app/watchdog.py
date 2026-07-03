@@ -31,14 +31,14 @@ class Watchdog:
 
         if not capture_manager.state.running:
             try:
-                capture_manager.start()
+                await asyncio.to_thread(capture_manager.start)
                 self._log_event("capture_start", "Capture was down; restarted")
             except Exception as exc:
                 self._log_event("capture_fail", str(exc))
         elif not capture_manager.is_healthy():
             self._log_event("capture_restart", "Capture unhealthy; restarting")
             try:
-                capture_manager.restart()
+                await asyncio.to_thread(capture_manager.restart)
             except Exception as exc:
                 self._log_event("capture_fail", str(exc))
 

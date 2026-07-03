@@ -47,22 +47,27 @@ function updateRecordStatus(data) {
 }
 
 async function refreshHealth() {
-  const resp = await fetch("/api/health");
-  const h = await resp.json();
-  document.getElementById("stream-ready").textContent = h.stream_ready ? "Ready" : "Waiting";
-  document.getElementById("capture-status").textContent = h.capture.running ? "Running" : "Stopped";
-  document.getElementById("disk-free").textContent = `${h.disk.free_gb} GB`;
-  document.getElementById("cpu-temp").textContent = h.cpu_temp_c ?? "N/A";
-  document.getElementById("sync-pending").textContent = h.sync.pending_count;
-  updateRecordStatus(h.recording);
+  try {
+    const resp = await fetch("/api/health");
+    if (!resp.ok) return;
+    const h = await resp.json();
+    document.getElementById("stream-ready")?.textContent = h.stream_ready ? "Ready" : "Waiting";
+    document.getElementById("capture-status")?.textContent = h.capture.running ? "Running" : "Stopped";
+    document.getElementById("disk-free")?.textContent = `${h.disk.free_gb} GB`;
+    document.getElementById("cpu-temp")?.textContent = h.cpu_temp_c ?? "N/A";
+    document.getElementById("sync-pending")?.textContent = h.sync.pending_count;
+    updateRecordStatus(h.recording);
 
-  const previewStatus = document.getElementById("preview-status");
-  if (previewStatus && !h.stream_ready && h.capture.last_error) {
-    previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
-    previewStatus.style.color = "#f88";
-  } else if (previewStatus && !h.stream_ready && !previewStatus.textContent.startsWith("Connecting")) {
-    previewStatus.textContent = "Waiting for stream from capture…";
-    previewStatus.style.color = "";
+    const previewStatus = document.getElementById("preview-status");
+    if (previewStatus && !h.stream_ready && h.capture.last_error) {
+      previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
+      previewStatus.style.color = "#f88";
+    } else if (previewStatus && !h.stream_ready && !previewStatus.textContent.startsWith("Connecting")) {
+      previewStatus.textContent = "Waiting for stream from capture…";
+      previewStatus.style.color = "";
+    }
+  } catch (err) {
+    console.warn("Health refresh failed", err);
   }
 }
 
@@ -138,6 +143,7 @@ document.getElementById("btn-preset-save")?.addEventListener("click", async () =
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
+  refreshHealth();
   if (isUsbCamera()) {
     v4l2Panel = await initV4l2CameraPanel();
   }

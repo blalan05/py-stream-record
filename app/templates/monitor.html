@@ -70,8 +70,8 @@
   window.THEATER_VIDEO_ID = "monitor-video";
   window.THEATER_CAPTURE_SOURCE = "{{ capture_source }}";
 </script>
-<script src="/static/webrtc.js"></script>
-<script src="/static/camera-controls.js"></script>
+<script src="/static/webrtc.js?v={{ asset_v }}"></script>
+<script src="/static/camera-controls.js?v={{ asset_v }}"></script>
 <script>
   document.getElementById("monitor-video")?.addEventListener("dblclick", () => {
     document.documentElement.requestFullscreen?.();

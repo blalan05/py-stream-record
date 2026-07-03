@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.auth import install_session_middleware, is_authenticated, login, logout, require_auth
 from app.camera import (
@@ -35,6 +37,16 @@ log = logging.getLogger(__name__)
 
 BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+ASSET_VERSION = str(int(time.time()))
+
+
+class NoCacheHtmlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        content_type = response.headers.get("content-type", "")
+        if content_type.startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
 
 
 @asynccontextmanager
@@ -42,10 +54,14 @@ async def lifespan(app: FastAPI):
     reload_config()
     cfg = get_config()
     Path(cfg["recording"]["local_dir"]).mkdir(parents=True, exist_ok=True)
-    try:
-        capture_manager.start()
-    except Exception:
-        log.exception("Initial capture start failed (dev machine?)")
+
+    async def _boot_capture() -> None:
+        try:
+            await asyncio.to_thread(capture_manager.start)
+        except Exception:
+            log.exception("Initial capture start failed (dev machine?)")
+
+    asyncio.create_task(_boot_capture())
     start_scheduler()
     watchdog.start()
     if cfg["sync"].get("mode") == "interval":
@@ -53,9 +69,9 @@ async def lifespan(app: FastAPI):
     yield
     watchdog.stop()
     stop_scheduler()
-    capture_manager.stop()
+    await asyncio.to_thread(capture_manager.stop)
     if recorder.is_recording:
-        recorder.stop()
+        await asyncio.to_thread(recorder.stop)
 
 
 async def _sync_loop(minutes: int) -> None:
@@ -66,6 +82,7 @@ async def _sync_loop(minutes: int) -> None:
 
 app = FastAPI(title="Theater Stream + Record", lifespan=lifespan)
 install_session_middleware(app)
+app.add_middleware(NoCacheHtmlMiddleware)
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 
 
@@ -76,6 +93,7 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
         "cfg": cfg,
         "whep_url": public_whep_url(request),
         "authenticated": is_authenticated(request),
+        "asset_v": ASSET_VERSION,
         **extra,
     }
 
@@ -102,12 +120,13 @@ async def logout_post(request: Request):
 async def dashboard(request: Request):
     if redirect := require_auth(request):
         return redirect
+    health = await asyncio.to_thread(health_snapshot)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         _ctx(
             request,
-            health=health_snapshot(),
+            health=health,
             presets=list_presets(),
             camera=get_camera_settings(),
             capture_source=get_config()["capture"].get("source", "csi"),
@@ -165,7 +184,7 @@ async def schedule_page(request: Request):
 
 @app.get("/api/health")
 async def api_health():
-    return health_snapshot()
+    return await asyncio.to_thread(health_snapshot)
 
 
 @app.post("/api/recording/start")
@@ -197,7 +216,7 @@ async def api_start_show(
         try:
             result = apply_preset(preset)
             if result.get("kind") == "csi":
-                capture_manager.restart()
+                await asyncio.to_thread(capture_manager.restart)
         except KeyError:
             return JSONResponse({"error": f"Unknown preset: {preset}"}, status_code=400)
 
@@ -223,7 +242,7 @@ async def api_start_show(
 async def api_capture_restart(request: Request):
     if redirect := require_auth(request):
         return redirect
-    capture_manager.restart()
+    await asyncio.to_thread(capture_manager.restart)
     return capture_manager.status()
 
 
@@ -233,7 +252,7 @@ async def api_camera_update(request: Request):
         return redirect
     data = await request.json()
     settings = update_camera_settings(data)
-    capture_manager.restart()
+    await asyncio.to_thread(capture_manager.restart)
     return settings
 
 
@@ -241,7 +260,7 @@ async def api_camera_update(request: Request):
 async def api_camera_controls(request: Request):
     if redirect := require_auth(request):
         return redirect
-    info = list_v4l2_controls()
+    info = await asyncio.to_thread(list_v4l2_controls)
     if info.get("available"):
         info["groups"] = control_groups(info["controls"])
     info["note"] = (
@@ -295,7 +314,7 @@ async def api_presets_apply(request: Request):
     data = await request.json()
     result = apply_preset(data["name"])
     if result.get("kind") == "csi":
-        capture_manager.restart()
+        await asyncio.to_thread(capture_manager.restart)
     return result
 
 
@@ -312,7 +331,7 @@ async def api_settings_save(request: Request):
         return redirect
     data = await request.json()
     saved = save_editable_settings(data)
-    capture_manager.restart()
+    await asyncio.to_thread(capture_manager.restart)
     return saved
 
 

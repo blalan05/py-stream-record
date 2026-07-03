@@ -80,7 +80,7 @@
   window.THEATER_WHEP_URL = "{{ whep_url }}";
   window.THEATER_CAPTURE_SOURCE = "{{ capture_source }}";
 </script>
-<script src="/static/webrtc.js"></script>
-<script src="/static/camera-controls.js"></script>
-<script src="/static/dashboard.js"></script>
+<script src="/static/webrtc.js?v={{ asset_v }}"></script>
+<script src="/static/camera-controls.js?v={{ asset_v }}"></script>
+<script src="/static/dashboard.js?v={{ asset_v }}"></script>
 {% endblock %}
