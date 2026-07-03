@@ -80,14 +80,14 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", _ctx(request))
+    return templates.TemplateResponse(request, "login.html", _ctx(request))
 
 
 @app.post("/login")
 async def login_post(request: Request, pin: str = Form(...)):
     if login(request, pin):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("login.html", _ctx(request, error="Invalid PIN"))
+    return templates.TemplateResponse(request, "login.html", _ctx(request, error="Invalid PIN"))
 
 
 @app.post("/logout")
@@ -101,6 +101,7 @@ async def dashboard(request: Request):
     if redirect := require_auth(request):
         return redirect
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         _ctx(
             request,
@@ -116,7 +117,7 @@ async def monitor(request: Request):
     cfg = get_config()
     if not cfg["app"].get("public_monitor", True) and not is_authenticated(request):
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse("monitor.html", _ctx(request))
+    return templates.TemplateResponse(request, "monitor.html", _ctx(request))
 
 
 @app.get("/recordings", response_class=HTMLResponse)
@@ -124,6 +125,7 @@ async def recordings_page(request: Request):
     if redirect := require_auth(request):
         return redirect
     return templates.TemplateResponse(
+        request,
         "recordings.html",
         _ctx(request, recordings=list_recordings(), sync=sync_status()),
     )
@@ -134,6 +136,7 @@ async def settings_page(request: Request):
     if redirect := require_auth(request):
         return redirect
     return templates.TemplateResponse(
+        request,
         "settings.html",
         _ctx(request, settings=get_editable_settings()),
     )
@@ -144,6 +147,7 @@ async def schedule_page(request: Request):
     if redirect := require_auth(request):
         return redirect
     return templates.TemplateResponse(
+        request,
         "schedule.html",
         _ctx(request, schedule=list_schedule()),
     )
