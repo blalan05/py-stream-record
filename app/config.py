@@ -40,6 +40,8 @@ def _defaults() -> dict[str, Any]:
             "audio_device": "default",
             "text_overlay": "",
             "low_latency": True,
+            "rotation": 0,
+            "rotation_fine": 0,
         },
         "camera": {
             "af_mode": "continuous",

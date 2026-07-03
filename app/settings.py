@@ -23,11 +23,23 @@ def list_presets() -> list[dict[str, Any]]:
     return json.loads(PRESETS_PATH.read_text(encoding="utf-8"))
 
 
-def save_preset(name: str, camera: dict[str, Any]) -> list[dict[str, Any]]:
+def save_preset(
+    name: str,
+    camera: dict[str, Any] | None = None,
+    v4l2: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     presets = list_presets()
-    entry = {"name": name, "camera": camera}
+    entry: dict[str, Any] = {"name": name}
+    if camera is not None:
+        entry["camera"] = camera
+    if v4l2 is not None:
+        entry["v4l2"] = v4l2
     for idx, preset in enumerate(presets):
         if preset["name"] == name:
+            if "camera" not in entry and "camera" in preset:
+                entry["camera"] = preset["camera"]
+            if "v4l2" not in entry and "v4l2" in preset:
+                entry["v4l2"] = preset["v4l2"]
             presets[idx] = entry
             break
     else:
@@ -60,8 +72,17 @@ def update_camera_settings(updates: dict[str, Any]) -> dict[str, Any]:
 
 def apply_preset(name: str) -> dict[str, Any]:
     for preset in list_presets():
-        if preset["name"] == name:
-            return update_camera_settings(preset["camera"])
+        if preset["name"] != name:
+            continue
+        cfg = get_config()
+        source = cfg["capture"].get("source", "csi")
+        if source == "usb" and preset.get("v4l2"):
+            from app.v4l2_controls import apply_v4l2_controls
+
+            return {"kind": "v4l2", **apply_v4l2_controls(preset["v4l2"])}
+        if preset.get("camera"):
+            return {"kind": "csi", "camera": update_camera_settings(preset["camera"])}
+        raise KeyError(f"Preset {name} has no settings for source {source}")
     raise KeyError(f"Preset not found: {name}")
 
 
@@ -78,6 +99,26 @@ def resolve_capture_source() -> str:
         log.warning("rpicam-vid not found; falling back to dev test pattern")
         return "dev"
     return source
+
+
+def rotation_video_filter() -> str | None:
+    """Build ffmpeg -vf chain for capture.rotation / capture.rotation_fine."""
+    cap = get_config()["capture"]
+    parts: list[str] = []
+    rotation = int(cap.get("rotation") or 0) % 360
+    if rotation == 90:
+        parts.append("transpose=1")
+    elif rotation == 180:
+        parts.append("hflip,vflip")
+    elif rotation == 270:
+        parts.append("transpose=2")
+
+    fine = float(cap.get("rotation_fine") or 0)
+    if abs(fine) > 0.01:
+        radians = fine * 3.141592653589793 / 180.0
+        parts.append(f"rotate={radians}:fillcolor=black:ow=rotw({radians}):oh=roth({radians})")
+
+    return ",".join(parts) if parts else None
 
 
 def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
@@ -116,6 +157,9 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         args.extend(["-f", "alsa", "-i", cap.get("audio_device", "default")])
 
     vf_parts: list[str] = []
+    rotate_vf = rotation_video_filter()
+    if rotate_vf:
+        vf_parts.append(rotate_vf)
     if cap.get("text_overlay") and fmt != "h264":
         overlay = cap["text_overlay"].replace("'", r"'\''")
         vf_parts.append(
@@ -222,8 +266,11 @@ def build_rpicam_args() -> list[str]:
             args.extend(["--gain", str(cam["gain"])])
     if cam.get("awb_lock") and cam.get("awb_mode"):
         args.extend(["--awb", cam["awb_mode"]])
-    if cam.get("ev"):
+    if cap.get("ev"):
         args.extend(["--ev", str(cam["ev"])])
+    rotation = int(get_config()["capture"].get("rotation") or 0)
+    if rotation in (90, 180, 270):
+        args.extend(["--rotation", str(rotation)])
 
     return args
 

@@ -28,7 +28,7 @@ from app.recorder import recorder
 from app.scheduler import add_schedule_entry, delete_schedule_entry, list_schedule, start_scheduler, stop_scheduler
 from app.sync import list_recordings, sync_file, sync_pending_local, sync_status
 from app.system import check_disk_guard, health_snapshot, public_whep_url, stream_ready
-from app.v4l2_controls import control_groups, list_v4l2_controls, set_v4l2_control
+from app.v4l2_controls import apply_v4l2_controls, control_groups, list_v4l2_controls, set_v4l2_control
 from app.watchdog import watchdog
 
 log = logging.getLogger(__name__)
@@ -110,6 +110,7 @@ async def dashboard(request: Request):
             health=health_snapshot(),
             presets=list_presets(),
             camera=get_camera_settings(),
+            capture_source=get_config()["capture"].get("source", "csi"),
         ),
     )
 
@@ -119,7 +120,11 @@ async def monitor(request: Request):
     cfg = get_config()
     if not cfg["app"].get("public_monitor", True) and not is_authenticated(request):
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "monitor.html", _ctx(request))
+    return templates.TemplateResponse(
+        request,
+        "monitor.html",
+        _ctx(request, capture_source=get_config()["capture"].get("source", "csi")),
+    )
 
 
 @app.get("/recordings", response_class=HTMLResponse)
@@ -190,8 +195,9 @@ async def api_start_show(
         return redirect
     if preset:
         try:
-            apply_preset(preset)
-            capture_manager.restart()
+            result = apply_preset(preset)
+            if result.get("kind") == "csi":
+                capture_manager.restart()
         except KeyError:
             return JSONResponse({"error": f"Unknown preset: {preset}"}, status_code=400)
 
@@ -251,9 +257,14 @@ async def api_camera_controls_set(request: Request):
     if redirect := require_auth(request):
         return redirect
     data = await request.json()
+    if "controls" in data and isinstance(data["controls"], dict):
+        result = apply_v4l2_controls(data["controls"])
+        if not result.get("ok"):
+            return JSONResponse(result, status_code=400)
+        return result
     name = data.get("name")
     if not name:
-        return JSONResponse({"error": "name required"}, status_code=400)
+        return JSONResponse({"error": "name or controls required"}, status_code=400)
     result = set_v4l2_control(name, data.get("value", 0))
     if not result.get("ok"):
         return JSONResponse(result, status_code=400)
@@ -270,7 +281,11 @@ async def api_presets_save(request: Request):
     if redirect := require_auth(request):
         return redirect
     data = await request.json()
-    return save_preset(data["name"], data.get("camera", get_camera_settings()))
+    return save_preset(
+        data["name"],
+        camera=data.get("camera"),
+        v4l2=data.get("v4l2"),
+    )
 
 
 @app.post("/api/presets/apply")
@@ -278,9 +293,10 @@ async def api_presets_apply(request: Request):
     if redirect := require_auth(request):
         return redirect
     data = await request.json()
-    settings = apply_preset(data["name"])
-    capture_manager.restart()
-    return settings
+    result = apply_preset(data["name"])
+    if result.get("kind") == "csi":
+        capture_manager.restart()
+    return result
 
 
 @app.delete("/api/presets/{name}")

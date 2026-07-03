@@ -26,21 +26,61 @@
     font-size: 12px;
     z-index: 1;
   }
+  .monitor-controls-toggle {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 3;
+  }
+  .monitor-controls-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(360px, 92vw);
+    height: 100vh;
+    overflow: auto;
+    background: rgba(15, 20, 25, 0.94);
+    border-left: 1px solid var(--border);
+    padding: 1rem;
+    z-index: 2;
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+  }
+  .monitor-controls-panel.open { transform: translateX(0); }
+  .monitor-controls-panel h3 { margin-top: 0; }
 </style>
 {% endblock %}
 {% block content %}
 <video id="monitor-video" autoplay playsinline muted></video>
-<div class="monitor-overlay">Theater monitor — double-click for fullscreen</div>
+<div class="monitor-overlay">Theater monitor — double-click video for fullscreen</div>
+{% if capture_source == 'usb' %}
+<button type="button" id="btn-monitor-controls" class="btn small monitor-controls-toggle">Camera</button>
+<aside id="monitor-controls-panel" class="monitor-controls-panel">
+  <h3>Camera</h3>
+  <p class="muted">Applied live via V4L2</p>
+  <div id="v4l2-controls" class="v4l2-panel stack"></div>
+  <p id="v4l2-status" class="muted"></p>
+  <button type="button" id="btn-v4l2-refresh" class="btn small">Refresh</button>
+</aside>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
   window.THEATER_WHEP_URL = "{{ whep_url }}";
   window.THEATER_VIDEO_ID = "monitor-video";
+  window.THEATER_CAPTURE_SOURCE = "{{ capture_source }}";
 </script>
 <script src="/static/webrtc.js"></script>
+<script src="/static/camera-controls.js"></script>
 <script>
-  document.getElementById("monitor-video").addEventListener("dblclick", () => {
+  document.getElementById("monitor-video")?.addEventListener("dblclick", () => {
     document.documentElement.requestFullscreen?.();
   });
+  document.getElementById("btn-monitor-controls")?.addEventListener("click", () => {
+    document.getElementById("monitor-controls-panel")?.classList.toggle("open");
+  });
+  if (window.THEATER_CAPTURE_SOURCE === "usb") {
+    initV4l2CameraPanel({ containerId: "v4l2-controls", statusId: "v4l2-status" });
+  }
 </script>
 {% endblock %}

@@ -37,7 +37,21 @@
       <label>Bitrate</label>
       <input type="number" name="capture.bitrate" value="{{ settings.capture.bitrate }}">
     </div>
+    <div>
+      <label>Rotation</label>
+      <select name="capture.rotation">
+        <option value="0" {% if (settings.capture.rotation | default(0)) == 0 %}selected{% endif %}>None</option>
+        <option value="90" {% if (settings.capture.rotation | default(0)) == 90 %}selected{% endif %}>90° clockwise</option>
+        <option value="180" {% if (settings.capture.rotation | default(0)) == 180 %}selected{% endif %}>180° (upside down)</option>
+        <option value="270" {% if (settings.capture.rotation | default(0)) == 270 %}selected{% endif %}>90° counter-clockwise</option>
+      </select>
+    </div>
+    <div>
+      <label>Fine tilt (degrees)</label>
+      <input type="number" name="capture.rotation_fine" step="0.5" min="-45" max="45" value="{{ settings.capture.rotation_fine | default(0) }}">
+    </div>
   </div>
+  <p class="muted">Rotation restarts capture. Any rotation re-encodes video (slightly more CPU than H.264 passthrough).</p>
   <label><input type="checkbox" name="capture.audio_enabled" {% if settings.capture.audio_enabled %}checked{% endif %}> Audio enabled</label>
   <label>Audio device (ALSA)</label>
   <input type="text" name="capture.audio_device" value="{{ settings.capture.audio_device }}">

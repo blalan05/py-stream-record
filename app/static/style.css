@@ -107,3 +107,16 @@ input[type="range"] { width: 100%; }
 .login-card { max-width: 360px; margin: 4rem auto; }
 
 code { background: #0b1018; padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+.v4l2-panel { max-height: 420px; overflow: auto; padding-right: 0.25rem; }
+.v4l2-group { margin-bottom: 1rem; }
+.v4l2-group h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.v4l2-control + .v4l2-control { margin-top: 0.5rem; }
+.v4l2-bool { display: flex; align-items: center; gap: 0.5rem; color: var(--text); }
+.v4l2-hint { min-height: 1rem; margin-top: 0.15rem; }

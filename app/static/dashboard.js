@@ -16,10 +16,13 @@ async function postJson(url, data) {
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error || resp.statusText);
+    throw new Error(err.error || (err.errors || []).join("; ") || resp.statusText);
   }
   return resp.json();
 }
+
+const isUsbCamera = () => window.THEATER_CAPTURE_SOURCE === "usb";
+let v4l2Panel = null;
 
 function showName() {
   return document.getElementById("show-name").value.trim();
@@ -57,10 +60,21 @@ async function refreshHealth() {
   if (previewStatus && !h.stream_ready && h.capture.last_error) {
     previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
     previewStatus.style.color = "#f88";
-  } else if (previewStatus && !h.stream_ready && !previewStatus.textContent) {
+  } else if (previewStatus && !h.stream_ready && !previewStatus.textContent.startsWith("Connecting")) {
     previewStatus.textContent = "Waiting for stream from capture…";
     previewStatus.style.color = "";
   }
+}
+
+function csiCameraPayload() {
+  return {
+    exposure_lock: document.getElementById("exposure-lock").checked,
+    awb_lock: document.getElementById("awb-lock").checked,
+    shutter_us: Number(document.getElementById("shutter").value),
+    gain: Number(document.getElementById("gain").value),
+    lens_position: Number(document.getElementById("lens").value),
+    af_mode: Number(document.getElementById("lens").value) > 0 ? "manual" : "continuous",
+  };
 }
 
 document.getElementById("btn-start")?.addEventListener("click", async () => {
@@ -92,14 +106,7 @@ document.getElementById("btn-start-show")?.addEventListener("click", async () =>
 });
 
 document.getElementById("btn-camera-save")?.addEventListener("click", async () => {
-  const payload = {
-    exposure_lock: document.getElementById("exposure-lock").checked,
-    awb_lock: document.getElementById("awb-lock").checked,
-    shutter_us: Number(document.getElementById("shutter").value),
-    gain: Number(document.getElementById("gain").value),
-    lens_position: Number(document.getElementById("lens").value),
-    af_mode: Number(document.getElementById("lens").value) > 0 ? "manual" : "continuous",
-  };
+  const payload = csiCameraPayload();
   await postJson("/api/camera", payload);
   alert("Camera settings applied (capture restarted).");
 });
@@ -107,23 +114,33 @@ document.getElementById("btn-camera-save")?.addEventListener("click", async () =
 document.getElementById("btn-preset-apply")?.addEventListener("click", async () => {
   const name = document.getElementById("preset-select").value;
   if (!name) return alert("Select a preset");
-  await postJson("/api/presets/apply", { name });
-  location.reload();
+  const result = await postJson("/api/presets/apply", { name });
+  if (isUsbCamera() && result.controls) {
+    await v4l2Panel?.refresh?.();
+  } else {
+    location.reload();
+  }
 });
 
 document.getElementById("btn-preset-save")?.addEventListener("click", async () => {
   const name = document.getElementById("preset-name").value.trim();
   if (!name) return alert("Enter a preset name");
-  const camera = {
-    exposure_lock: document.getElementById("exposure-lock").checked,
-    awb_lock: document.getElementById("awb-lock").checked,
-    shutter_us: Number(document.getElementById("shutter").value),
-    gain: Number(document.getElementById("gain").value),
-    lens_position: Number(document.getElementById("lens").value),
-  };
-  await postJson("/api/presets", { name, camera });
+  const payload = { name };
+  if (isUsbCamera()) {
+    const root = document.getElementById("v4l2-controls");
+    payload.v4l2 = root ? collectV4l2Values(root) : {};
+  } else {
+    payload.camera = csiCameraPayload();
+  }
+  await postJson("/api/presets", payload);
   alert("Preset saved");
   location.reload();
+});
+
+document.addEventListener("DOMContentLoaded", async () => {
+  if (isUsbCamera()) {
+    v4l2Panel = await initV4l2CameraPanel();
+  }
 });
 
 setInterval(refreshHealth, 5000);
