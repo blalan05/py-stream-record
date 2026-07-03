@@ -149,7 +149,11 @@ def effective_audio_device() -> str:
     return device
 
 
-def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
+def build_usb_ffmpeg_args(
+    video_format: str | None = None,
+    *,
+    force_reencode: bool = False,
+) -> list[str]:
     cfg = get_config()
     cap = cfg["capture"]
     rtsp = cfg["mediamtx"]["rtsp_url"]
@@ -169,7 +173,7 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         args.extend(["-fflags", "nobuffer"])
     if fmt:
         args.extend(["-input_format", fmt])
-    passthrough = fmt == "h264" and not capture_needs_reencode()
+    passthrough = fmt == "h264" and not capture_needs_reencode() and not force_reencode
     if passthrough and not cap.get("audio_enabled"):
         args.extend(["-use_wallclock_as_timestamps", "1"])
     args.extend(
@@ -185,15 +189,19 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         ]
     )
     if cap.get("audio_enabled"):
-        alsa_args = ["-thread_queue_size", "512", "-f", "alsa"]
-        audio_rate = int(cap.get("audio_rate") or 0)
-        audio_channels = int(cap.get("audio_channels") or 0)
-        if audio_rate > 0:
-            alsa_args.extend(["-ar", str(audio_rate)])
-        if audio_channels > 0:
-            alsa_args.extend(["-ac", str(audio_channels)])
-        alsa_args.extend(["-i", effective_audio_device()])
-        args.extend(alsa_args)
+        # Let plughw use the device native rate/channels; forcing -ar on input often fails on USB mics.
+        args.extend(
+            [
+                "-thread_queue_size",
+                "512",
+                "-f",
+                "alsa",
+                "-sample_fmt",
+                "s16",
+                "-i",
+                effective_audio_device(),
+            ]
+        )
 
     vf_parts: list[str] = []
     vf_parts.extend(rotation_video_filters())
@@ -211,10 +219,8 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
     if cap.get("audio_enabled"):
         args.extend(["-map", "1:a:0"])
 
-    if fmt == "h264" and not vf_parts:
+    if fmt == "h264" and not vf_parts and not force_reencode:
         args.extend(["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"])
-        if cap.get("audio_enabled"):
-            args.extend(["-vsync", "passthrough"])
     else:
         args.extend(
             [
@@ -231,8 +237,8 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
             ]
         )
     if cap.get("audio_enabled"):
-        out_rate = int(cap.get("audio_rate") or 48000)
-        out_channels = int(cap.get("audio_channels") or 2) or 2
+        out_rate = int(cap.get("audio_rate") or 48000) or 48000
+        out_channels = int(cap.get("audio_channels") or 0) or 2
         args.extend(
             [
                 "-af",
@@ -251,6 +257,8 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         args.append("-an")
     args.extend(
         [
+            "-max_interleave_delta",
+            "0",
             "-max_muxing_queue_size",
             "1024",
             "-f",

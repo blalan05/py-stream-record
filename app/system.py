@@ -80,6 +80,69 @@ def mediamtx_ready() -> bool:
         return False
 
 
+_AUDIO_CODEC_MARKERS = (
+    "audio",
+    "aac",
+    "opus",
+    "g711",
+    "mp3",
+    "ac3",
+    "vorbis",
+    "pcm",
+    "lpcm",
+    "mpeg-4",
+    "mpeg4",
+    "mp2",
+    "speex",
+)
+
+
+def _codec_is_audio(codec: str | None) -> bool:
+    if not codec:
+        return False
+    lower = codec.lower()
+    return any(marker in lower for marker in _AUDIO_CODEC_MARKERS)
+
+
+def _normalize_path_tracks(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """MediaMTX v1.11 returns codec strings; newer versions add tracks2 objects."""
+    tracks: list[dict[str, Any]] = []
+    for track in data.get("tracks2") or []:
+        if not isinstance(track, dict):
+            continue
+        codec = str(track.get("codec") or "")
+        tracks.append(
+            {
+                "type": "audio" if _codec_is_audio(codec) else "video",
+                "codec": codec,
+            }
+        )
+    if tracks:
+        return tracks
+
+    for track in data.get("tracks") or []:
+        if isinstance(track, str):
+            tracks.append(
+                {
+                    "type": "audio" if _codec_is_audio(track) else "video",
+                    "codec": track,
+                }
+            )
+        elif isinstance(track, dict):
+            codec = track.get("codec") or track.get("type")
+            track_type = track.get("type")
+            if not track_type and codec:
+                track_type = "audio" if _codec_is_audio(str(codec)) else "video"
+            tracks.append(
+                {
+                    "type": track_type,
+                    "codec": codec,
+                    "id": track.get("id"),
+                }
+            )
+    return tracks
+
+
 def stream_path_info() -> dict[str, Any]:
     cfg = get_config()
     path = cfg["mediamtx"]["stream_path"]
@@ -104,18 +167,9 @@ def stream_path_info() -> dict[str, Any]:
         info["bytes_received"] = int(data.get("bytesReceived") or 0)
         info["readers"] = len(data.get("readers") or [])
         info["ready_time"] = data.get("readyTime")
-        tracks = []
-        for track in data.get("tracks") or []:
-            tracks.append(
-                {
-                    "type": track.get("type"),
-                    "codec": track.get("codec"),
-                    "id": track.get("id"),
-                }
-            )
-        info["tracks"] = tracks
+        info["tracks"] = _normalize_path_tracks(data)
     except Exception:
-        pass
+        log.exception("Failed to read MediaMTX path info")
     return info
 
 
@@ -125,7 +179,7 @@ def stream_ready() -> bool:
 
 def stream_has_audio() -> bool:
     tracks = stream_path_info().get("tracks") or []
-    return any(t.get("type") == "audio" for t in tracks)
+    return any(str(t.get("type", "")).lower() == "audio" for t in tracks)
 
 
 def health_snapshot() -> dict[str, Any]:

@@ -26,6 +26,8 @@ class CaptureState:
     started_at: float | None = None
     last_error: str | None = None
     restarts: int = 0
+    ffmpeg_cmd: str | None = None
+    stream_has_audio: bool = False
 
 
 class CaptureManager:
@@ -92,28 +94,95 @@ class CaptureManager:
                 pass
         return f"ffmpeg exited {proc.returncode}"
 
-    def _start_usb_capture(self) -> None:
-        errors: list[str] = []
-        for fmt in usb_ffmpeg_format_candidates():
-            label = fmt or "auto"
-            cmd = build_usb_ffmpeg_args(video_format=fmt)
-            log.info("USB capture trying format=%s: %s", label, " ".join(cmd))
-            self.state.last_error = None
-            proc = self._spawn_ffmpeg(cmd)
-            time.sleep(2.0)
-            if proc.poll() is None:
-                self._ffmpeg = proc
-                if fmt and fmt != (get_config()["capture"].get("video_format") or "").strip().lower():
-                    log.warning("USB capture succeeded with format=%s (update config to match)", label)
-                return
-            proc.wait(timeout=2)
-            msg = self._read_ffmpeg_error(proc)
-            errors.append(f"[{label}] {msg}")
-            log.warning("USB capture failed format=%s: %s", label, msg)
+    def _stop_ffmpeg(self) -> None:
+        if self._ffmpeg and self._ffmpeg.poll() is None:
+            self._ffmpeg.terminate()
+            try:
+                self._ffmpeg.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._ffmpeg.kill()
+        self._ffmpeg = None
+        self.state.stream_has_audio = False
+
+    def _wait_for_stream_audio(self, timeout: float = 8.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                from app.system import stream_has_audio
+
+                if stream_has_audio():
+                    return True
+            except Exception:
+                pass
             time.sleep(0.5)
-        joined = " | ".join(errors)
+        return False
+
+    def _try_usb_format(
+        self,
+        fmt: str | None,
+        *,
+        force_reencode: bool = False,
+    ) -> subprocess.Popen[bytes] | None:
+        label = fmt or "auto"
+        cmd = build_usb_ffmpeg_args(video_format=fmt, force_reencode=force_reencode)
+        self.state.last_error = None
+        self.state.ffmpeg_cmd = " ".join(cmd)
+        log.info("USB capture trying format=%s reencode=%s: %s", label, force_reencode, self.state.ffmpeg_cmd)
+        proc = self._spawn_ffmpeg(cmd)
+        time.sleep(2.5)
+        if proc.poll() is None:
+            return proc
+        proc.wait(timeout=2)
+        msg = self._read_ffmpeg_error(proc)
+        self.state.last_error = f"[{label}] {msg}"
+        log.warning("USB capture failed format=%s: %s", label, msg)
+        return None
+
+    def _start_usb_capture(self) -> None:
+        cfg = get_config()
+        audio_wanted = bool(cfg["capture"].get("audio_enabled"))
+        errors: list[str] = []
+
+        for fmt in usb_ffmpeg_format_candidates():
+            proc = self._try_usb_format(fmt)
+            if not proc:
+                if self.state.last_error:
+                    errors.append(self.state.last_error)
+                continue
+            if not audio_wanted:
+                self._ffmpeg = proc
+                self.state.stream_has_audio = False
+                return
+            if self._wait_for_stream_audio(6.0):
+                self._ffmpeg = proc
+                self.state.stream_has_audio = True
+                return
+            errors.append(f"[{fmt or 'auto'}] video OK but no audio track in stream")
+            self._stop_ffmpeg()
+            time.sleep(0.5)
+
+        if audio_wanted:
+            for fmt in ("mjpeg", ""):
+                proc = self._try_usb_format(fmt, force_reencode=True)
+                if not proc:
+                    if self.state.last_error:
+                        errors.append(self.state.last_error)
+                    continue
+                if self._wait_for_stream_audio(8.0):
+                    self._ffmpeg = proc
+                    self.state.stream_has_audio = True
+                    log.warning("USB capture using re-encode (%s) to mux audio", fmt or "auto")
+                    return
+                errors.append(f"[{fmt or 'auto'} re-encode] no audio track in stream")
+                self._stop_ffmpeg()
+                time.sleep(0.5)
+
+        joined = " | ".join(errors) if errors else "unknown error"
         self.state.last_error = joined
-        raise RuntimeError(f"USB capture failed: {joined}")
+        raise RuntimeError(
+            f"USB capture failed: {joined}. "
+            "Check ALSA device in Settings (use plughw, not default) and test mic with audio disabled."
+        )
 
     def _dev_ffmpeg_cmd(self) -> list[str]:
         cfg = get_config()
@@ -234,6 +303,7 @@ class CaptureManager:
             self._video_proc = None
             self.state.running = False
             self.state.pid = None
+            self.state.stream_has_audio = False
 
     def restart(self) -> None:
         self.stop()
@@ -264,6 +334,12 @@ class CaptureManager:
         healthy = self.is_healthy()
         cfg = get_config()
         source = resolve_capture_source()
+        audio_enabled = cfg["capture"].get("audio_enabled", False)
+        effective_device = None
+        if audio_enabled:
+            from app.settings import effective_audio_device
+
+            effective_device = effective_audio_device()
         return {
             "running": self.state.running and healthy,
             "pid": self.state.pid,
@@ -272,8 +348,11 @@ class CaptureManager:
             "last_error": self.state.last_error,
             "source": source,
             "dev_mode": source == "dev",
-            "audio_enabled": cfg["capture"].get("audio_enabled", False),
+            "audio_enabled": audio_enabled,
             "audio_device": cfg["capture"].get("audio_device"),
+            "effective_audio_device": effective_device,
+            "stream_has_audio": self.state.stream_has_audio,
+            "ffmpeg_cmd": self.state.ffmpeg_cmd,
             "resolution": f"{cfg['capture']['width']}x{cfg['capture']['height']}@{cfg['capture']['fps']}",
         }
 

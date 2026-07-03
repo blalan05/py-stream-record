@@ -118,7 +118,10 @@ async function refreshHealth() {
 
     const previewStatus = document.getElementById("preview-status");
     if (previewStatus && h.capture?.audio_enabled && h.stream_ready && !h.stream_has_audio) {
-      previewStatus.textContent = "Audio enabled but stream has no audio track — check ALSA device in Settings";
+      const device = h.capture.effective_audio_device || h.capture.audio_device || "default";
+      previewStatus.textContent =
+        `Audio enabled but stream has no audio track — device ${device}. ` +
+        "Save Settings with plughw device, or test mic with audio disabled first.";
       previewStatus.style.color = "#f88";
     } else if (previewStatus && !h.stream_ready && h.capture.last_error) {
       previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
