@@ -28,7 +28,7 @@ from app.recorder import recorder
 from app.scheduler import add_schedule_entry, delete_schedule_entry, list_schedule, start_scheduler, stop_scheduler
 from app.sync import list_recordings, sync_file, sync_pending_local, sync_status
 from app.system import check_disk_guard, health_snapshot, public_whep_url, stream_ready
-from app.watchdog import watchdog
+from app.v4l2_controls import control_groups, list_v4l2_controls, set_v4l2_control
 
 log = logging.getLogger(__name__)
 
@@ -228,6 +228,35 @@ async def api_camera_update(request: Request):
     settings = update_camera_settings(data)
     capture_manager.restart()
     return settings
+
+
+@app.get("/api/camera/controls")
+async def api_camera_controls(request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    info = list_v4l2_controls()
+    if info.get("available"):
+        info["groups"] = control_groups(info["controls"])
+    info["note"] = (
+        "USB/V4L2 controls from the driver. CSI Pi camera uses rpicam settings on /api/camera instead."
+        if get_config()["capture"].get("source") == "usb"
+        else "Pi CSI camera — use /api/camera for exposure/AWB/focus."
+    )
+    return info
+
+
+@app.post("/api/camera/controls")
+async def api_camera_controls_set(request: Request):
+    if redirect := require_auth(request):
+        return redirect
+    data = await request.json()
+    name = data.get("name")
+    if not name:
+        return JSONResponse({"error": "name required"}, status_code=400)
+    result = set_v4l2_control(name, data.get("value", 0))
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    return result
 
 
 @app.get("/api/presets")

@@ -136,6 +136,31 @@ If your device only lists **H264** (some USB capture sticks), use `video_format:
 
 Dashboard exposure/focus controls apply only to the Pi CSI camera (`source: csi`).
 
+### Discover USB camera controls
+
+What you can adjust depends on the **camera hardware and driver**, not the app. On the Pi:
+
+```bash
+chmod +x scripts/list-camera-controls.sh
+./scripts/list-camera-controls.sh /dev/video0
+```
+
+Or query the app (logged in):
+
+```bash
+curl -s -b cookies.txt http://127.0.0.1:8080/api/camera/controls | python3 -m json.tool
+```
+
+Each control shows `name`, `min`, `max`, `step`, and current `value`. Typical UVC webcams expose exposure, gain, white balance, and sometimes focus/zoom. **USB HDMI capture dongles often expose no controls** (fixed H.264 passthrough) — zoom/crop would then be done in software via ffmpeg filters.
+
+| Control type | CSI Pi camera (today) | USB camera (today) |
+|--------------|----------------------|-------------------|
+| Exposure / shutter / gain | Dashboard → `/api/camera` → `rpicam-vid` | `v4l2-ctl` / `/api/camera/controls` if driver lists them |
+| White balance | Dashboard → `/api/camera` | Same (V4L2) |
+| Focus / lens | Dashboard → `/api/camera` | V4L2 `focus_*` if present |
+| Zoom | — | V4L2 `zoom_*` if present; else ffmpeg `scale`/`crop` (not in UI yet) |
+| Scene presets | Dashboard presets | Saved to `camera` config today (CSI only); USB presets need V4L2 wiring |
+
 ## Audio setup
 
 List ALSA devices on the Pi:
