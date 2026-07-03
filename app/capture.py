@@ -106,7 +106,13 @@ class CaptureManager:
                     self._ffmpeg = subprocess.Popen(self._dev_ffmpeg_cmd())
                     self._video_proc = None
                 elif source == "usb":
-                    self._ffmpeg = subprocess.Popen(build_usb_ffmpeg_args())
+                    cmd = build_usb_ffmpeg_args()
+                    log.info("USB capture ffmpeg: %s", " ".join(cmd))
+                    self._ffmpeg = subprocess.Popen(
+                        cmd,
+                        stderr=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                    )
                     self._video_proc = None
                 else:
                     rpicam_cmd, ffmpeg_cmd = self._pi_pipeline_cmd()

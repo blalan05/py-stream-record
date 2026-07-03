@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from urllib.parse import urlparse, urlunparse
+
 from app.config import get_config
 from app.capture import capture_manager
 
@@ -54,6 +56,18 @@ def check_disk_guard(hours: float = 3.0) -> dict[str, Any]:
             else "Disk space OK"
         ),
     }
+
+
+def public_whep_url(request) -> str:
+    """WebRTC URL reachable from the browser (not 127.0.0.1 when viewing remotely)."""
+    cfg = get_config()
+    configured = cfg["mediamtx"]["webrtc_url"]
+    parsed = urlparse(configured)
+    page_host = request.url.hostname
+    port = parsed.port or 8889
+    if parsed.hostname in (None, "127.0.0.1", "localhost") and page_host:
+        return urlunparse(parsed._replace(netloc=f"{page_host}:{port}"))
+    return configured
 
 
 def mediamtx_ready() -> bool:

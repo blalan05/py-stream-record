@@ -16,12 +16,12 @@ capture:
   source: usb
   dev_mode: false
   video_device: "/dev/video0"
-  video_format: h264
-  width: 1920
-  height: 1080
+  video_format: ""
+  width: 1280
+  height: 720
   fps: 30
   bitrate: 4000000
-  audio_enabled: true
+  audio_enabled: false
   audio_device: "default"
   text_overlay: ""
   low_latency: true

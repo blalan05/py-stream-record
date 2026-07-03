@@ -118,34 +118,21 @@ v4l2-ctl --list-devices
 v4l2-ctl -d /dev/video0 --list-formats-ext
 ```
 
-In `config.yaml` (or **Settings → Video source**):
+In `config.yaml` (or **Settings → Video source**), set **Video source** to `USB camera`:
 
 ```yaml
 capture:
   source: usb
   video_device: "/dev/video0"
-  video_format: ""          # optional: mjpeg, h264, yuyv422, etc.
-  width: 1920
-  height: 1080
+  video_format: ""          # leave blank first; try mjpeg if needed
+  width: 1280
+  height: 720
   fps: 30
 ```
 
-Use the `/dev/video*` node that lists capture formats (often `video0`, not `video1`). If ffmpeg fails to open the device, try setting `video_format` to one of the formats from `v4l2-ctl --list-formats-ext`. Match width/height/fps to a mode your camera actually supports.
+Use the `/dev/video*` node that lists capture formats (usually `video0`, not `video1`). Match width/height/fps to a mode from `v4l2-ctl --list-formats-ext`. Most USB webcams use **MJPEG** — if auto-detect fails, set `video_format: mjpeg`.
 
-**HDMI USB capture (H.264 only)** — many dongles expose only `H264`. Example:
-
-```yaml
-capture:
-  source: usb
-  video_device: "/dev/video0"
-  video_format: h264
-  width: 1920
-  height: 1080
-  fps: 30
-  text_overlay: ""   # passthrough can't burn in timestamps without re-encode
-```
-
-The app passes H.264 through without re-encoding on the Pi (`-c:v copy`), which keeps CPU low at 1080p.
+If your device only lists **H264** (some USB capture sticks), use `video_format: h264` instead; the app will passthrough without re-encoding.
 
 Dashboard exposure/focus controls apply only to the Pi CSI camera (`source: csi`).
 

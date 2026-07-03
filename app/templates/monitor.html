@@ -25,7 +25,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-  window.THEATER_WHEP_URL = "{{ cfg.mediamtx.webrtc_url }}";
+  window.THEATER_WHEP_URL = "{{ whep_url }}";
   window.THEATER_VIDEO_ID = "monitor-video";
 </script>
 <script src="/static/webrtc.js"></script>

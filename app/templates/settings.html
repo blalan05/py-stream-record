@@ -15,9 +15,9 @@
   <div id="usb-fields" class="stack">
     <label>USB video device</label>
     <input type="text" name="capture.video_device" value="{{ settings.capture.video_device or '/dev/video0' }}" placeholder="/dev/video0">
-    <label>Video format (optional, e.g. mjpeg or h264)</label>
+    <label>Video format (optional — try mjpeg for most USB webcams)</label>
     <input type="text" name="capture.video_format" value="{{ settings.capture.video_format or '' }}" placeholder="Leave blank to auto-detect">
-    <p class="muted">On the Pi, run <code>v4l2-ctl --list-devices</code> and <code>v4l2-ctl -d /dev/video0 --list-formats-ext</code> to find the right device and format.</p>
+    <p class="muted">Run <code>v4l2-ctl --list-devices</code> and <code>v4l2-ctl -d /dev/video0 --list-formats-ext</code> on the Pi. Pick a format and resolution your camera supports.</p>
   </div>
   <label><input type="checkbox" name="capture.dev_mode" {% if settings.capture.dev_mode %}checked{% endif %}> Legacy dev_mode flag (overrides source to test pattern)</label>
   <div class="grid two">

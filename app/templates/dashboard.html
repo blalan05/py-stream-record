@@ -15,6 +15,7 @@
       <video id="preview" autoplay playsinline muted></video>
     </div>
     <p class="muted">WebRTC preview from MediaMTX</p>
+    <p id="preview-status" class="muted"></p>
   </div>
 
   <div class="card">
@@ -87,7 +88,7 @@
 
 {% block scripts %}
 <script>
-  window.THEATER_WHEP_URL = "{{ cfg.mediamtx.webrtc_url }}";
+  window.THEATER_WHEP_URL = "{{ whep_url }}";
 </script>
 <script src="/static/webrtc.js"></script>
 <script src="/static/dashboard.js"></script>

@@ -52,6 +52,15 @@ async function refreshHealth() {
   document.getElementById("cpu-temp").textContent = h.cpu_temp_c ?? "N/A";
   document.getElementById("sync-pending").textContent = h.sync.pending_count;
   updateRecordStatus(h.recording);
+
+  const previewStatus = document.getElementById("preview-status");
+  if (previewStatus && !h.stream_ready && h.capture.last_error) {
+    previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
+    previewStatus.style.color = "#f88";
+  } else if (previewStatus && !h.stream_ready && !previewStatus.textContent) {
+    previewStatus.textContent = "Waiting for stream from capture…";
+    previewStatus.style.color = "";
+  }
 }
 
 document.getElementById("btn-start")?.addEventListener("click", async () => {

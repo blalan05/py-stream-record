@@ -27,7 +27,7 @@ from app.config import get_config, reload_config
 from app.recorder import recorder
 from app.scheduler import add_schedule_entry, delete_schedule_entry, list_schedule, start_scheduler, stop_scheduler
 from app.sync import list_recordings, sync_file, sync_pending_local, sync_status
-from app.system import check_disk_guard, health_snapshot, stream_ready
+from app.system import check_disk_guard, health_snapshot, public_whep_url, stream_ready
 from app.watchdog import watchdog
 
 log = logging.getLogger(__name__)
@@ -73,6 +73,7 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
     return {
         "request": request,
         "cfg": cfg,
+        "whep_url": public_whep_url(request),
         "authenticated": is_authenticated(request),
         **extra,
     }
