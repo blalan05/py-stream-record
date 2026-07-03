@@ -176,8 +176,6 @@ async function loadDeviceLists() {
 
     const videoSelect = document.getElementById("video-device-select");
     const audioSelect = document.getElementById("audio-device-select");
-    const customInput = document.getElementById("video-device-custom");
-    const currentVideo = customInput?.value?.trim() || "/dev/video0";
     const currentAudio = document.querySelector('input[name="capture.audio_device"]')?.value || "default";
 
     if (videoSelect) {
@@ -308,14 +306,19 @@ document.getElementById("settings-form")?.addEventListener("submit", async (ev) 
   const resp = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify(payload),
   });
   const msg = document.getElementById("settings-msg");
-  if (resp.ok) {
-    msg.textContent = "Saved. Capture restarted with new settings.";
-  } else {
-    const data = await resp.json().catch(() => ({}));
-    msg.textContent = data.error || "Save failed.";
+  try {
+    const data = await readJson(resp);
+    if (resp.ok) {
+      msg.textContent = "Saved. Capture restarted with new settings.";
+    } else {
+      msg.textContent = data.error || "Save failed.";
+    }
+  } catch (err) {
+    msg.textContent = String(err.message || err);
   }
 });
 
