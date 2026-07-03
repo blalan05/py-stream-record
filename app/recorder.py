@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -19,11 +20,69 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", text.strip()) or "show"
 
 
+def _file_has_audio(path: Path) -> bool:
+    if not path.exists() or not shutil.which("ffprobe"):
+        return False
+    proc = subprocess.run(
+        [
+            "ffprobe",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    return "audio" in (proc.stdout or "")
+
+
+def _rtsp_has_audio(rtsp: str) -> bool:
+    if not shutil.which("ffprobe"):
+        return True
+    proc = subprocess.run(
+        [
+            "ffprobe",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            "-i",
+            rtsp,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=12,
+        check=False,
+    )
+    return "audio" in (proc.stdout or "")
+
+
 def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) -> list[str]:
-    """Record from RTSP with stream copy; tuned to avoid timestamp stutter in MP4 segments."""
+    """Record from RTSP; video stream copy, audio re-encoded for valid MP4 segments.
+
+    RTSP AAC (mpeg4-generic) often fails to mux with ``-c:a copy`` into fragmented MP4 —
+    ffmpeg reads audio packets but writes zero. Re-encoding audio avoids that regression.
+    """
     cfg = get_config()
     ext = cfg["recording"].get("container", "mp4")
-    audio_enabled = bool(cfg["capture"].get("audio_enabled"))
+    cap = cfg["capture"]
+    audio_enabled = bool(cap.get("audio_enabled"))
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -31,6 +90,10 @@ def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) 
         "warning",
         "-rtsp_transport",
         "tcp",
+        "-probesize",
+        "5000000",
+        "-analyzeduration",
+        "5000000",
         "-thread_queue_size",
         "1024",
         "-fflags",
@@ -41,11 +104,30 @@ def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) 
         "0:v:0",
     ]
     if audio_enabled:
-        cmd.extend(["-map", "0:a:0"])
+        rate = int(cap.get("audio_rate") or 48000) or 48000
+        channels = int(cap.get("audio_channels") or 0) or 2
+        cmd.extend(
+            [
+                "-map",
+                "0:a:0",
+                "-c:v",
+                "copy",
+                "-af",
+                "aresample=async=1000:first_pts=0",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-ar",
+                str(rate),
+                "-ac",
+                str(channels),
+            ]
+        )
+    else:
+        cmd.extend(["-c:v", "copy"])
     cmd.extend(
         [
-            "-c",
-            "copy",
             "-avoid_negative_ts",
             "make_zero",
             "-max_muxing_queue_size",
@@ -150,6 +232,10 @@ class Recorder:
                         "Stream has no audio track. Check Settings (plughw device) and wait until "
                         "Tracks shows audio before recording."
                     )
+                if not _rtsp_has_audio(rtsp):
+                    raise RuntimeError(
+                        "RTSP stream has no audio (ffprobe). Wait for capture audio or restart capture."
+                    )
 
             cmd = _recorder_ffmpeg_cmd(rtsp, segment_pattern, segment_seconds)
             log.info("Recorder ffmpeg: %s", " ".join(cmd))
@@ -209,6 +295,15 @@ class Recorder:
 
         segments = sorted(str(p) for p in segment_dir.glob(Path(pattern).name.replace("%03d", "*")))
         log.info("Recording stopped, %d segments", len(segments))
+
+        if segments and get_config()["capture"].get("audio_enabled"):
+            for seg in segments[:3]:
+                path = Path(seg)
+                if not _file_has_audio(path):
+                    log.error(
+                        "Recording segment has no audio track: %s (re-deploy and record again after fix)",
+                        path.name,
+                    )
 
         def _sync_background() -> None:
             from app.sync import sync_after_show
