@@ -101,24 +101,34 @@ def resolve_capture_source() -> str:
     return source
 
 
-def rotation_video_filter() -> str | None:
-    """Build ffmpeg -vf chain for capture.rotation / capture.rotation_fine."""
+def rotation_video_filters() -> list[str]:
+    """ffmpeg -vf filters for capture.rotation / capture.rotation_fine."""
     cap = get_config()["capture"]
     parts: list[str] = []
     rotation = int(cap.get("rotation") or 0) % 360
     if rotation == 90:
         parts.append("transpose=1")
     elif rotation == 180:
-        parts.append("hflip,vflip")
+        parts.append("transpose=2,transpose=2")
     elif rotation == 270:
         parts.append("transpose=2")
 
     fine = float(cap.get("rotation_fine") or 0)
     if abs(fine) > 0.01:
         radians = fine * 3.141592653589793 / 180.0
-        parts.append(f"rotate={radians}:fillcolor=black:ow=rotw({radians}):oh=roth({radians})")
+        parts.append(f"rotate={radians}:c=none")
 
-    return ",".join(parts) if parts else None
+    return parts
+
+
+def rotation_video_filter() -> str | None:
+    filters = rotation_video_filters()
+    return ",".join(filters) if filters else None
+
+
+def capture_needs_reencode() -> bool:
+    cap = get_config()["capture"]
+    return bool(rotation_video_filters()) or bool(cap.get("text_overlay"))
 
 
 def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
@@ -141,7 +151,8 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         args.extend(["-fflags", "nobuffer"])
     if fmt:
         args.extend(["-input_format", fmt])
-    if fmt == "h264":
+    needs_reencode = capture_needs_reencode() or bool(fmt != "h264")
+    if fmt == "h264" and not needs_reencode:
         args.extend(["-use_wallclock_as_timestamps", "1"])
     args.extend(
         [
@@ -157,17 +168,13 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         args.extend(["-f", "alsa", "-i", cap.get("audio_device", "default")])
 
     vf_parts: list[str] = []
-    rotate_vf = rotation_video_filter()
-    if rotate_vf:
-        vf_parts.append(rotate_vf)
-    if cap.get("text_overlay") and fmt != "h264":
+    vf_parts.extend(rotation_video_filters())
+    if cap.get("text_overlay"):
         overlay = cap["text_overlay"].replace("'", r"'\''")
         vf_parts.append(
             f"drawtext=expansion=strftime:text='{overlay}'"
             ":x=10:y=10:fontsize=24:fontcolor=white:box=1:boxcolor=0x00000080"
         )
-    elif cap.get("text_overlay") and fmt == "h264":
-        log.info("Skipping timestamp overlay for H264 USB capture (requires re-encode)")
 
     if vf_parts:
         args.extend(["-vf", ",".join(vf_parts)])
@@ -211,8 +218,19 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
 
 def usb_ffmpeg_format_candidates() -> list[str]:
     """Try configured format first, then common USB camera formats."""
-    configured = (get_config()["capture"].get("video_format") or "").strip().lower()
+    cap = get_config()["capture"]
+    configured = (cap.get("video_format") or "").strip().lower()
     candidates: list[str] = []
+
+    if capture_needs_reencode():
+        # MJPEG decodes more reliably for rotate/overlay re-encode on the Pi.
+        for fmt in (configured, "mjpeg", "h264", ""):
+            if fmt and fmt not in candidates:
+                candidates.append(fmt)
+        if "" not in candidates:
+            candidates.append("")
+        return candidates
+
     if configured:
         candidates.append(configured)
     for fmt in ("h264", "mjpeg", ""):
