@@ -20,6 +20,13 @@ sudo rsync -a \
   --exclude .git \
   "$SRC_DIR/" "$INSTALL_DIR/"
 
+if [[ -f /etc/theater-app/config.yaml ]]; then
+  echo "==> Sync capture settings -> /etc/theater-app/config.yaml"
+  PY="$INSTALL_DIR/.venv/bin/python"
+  [[ -x "$PY" ]] || PY=python3
+  sudo "$PY" "$SRC_DIR/scripts/sync_capture_config.py" "$INSTALL_DIR/config.yaml"
+fi
+
 echo "==> Restart services"
 sudo systemctl restart mediamtx theater-app
 
