@@ -1,11 +1,10 @@
 ###############################################
-# Theater app - MediaMTX config
+# Theater app - MediaMTX config (validated for v1.11.3)
 # Camera+audio is published by app/capture.py via RTSP.
 
 logLevel: info
 logDestinations: [stdout]
 
-# Outgoing packet queue (global setting in MediaMTX 1.11.x — not per-path)
 writeQueueSize: 1024
 
 api: yes
@@ -23,7 +22,3 @@ paths:
   cam:
     source: publisher
     overridePublisher: yes
-
-  cam_preview:
-    source: redirect
-    sourceRedirect: /cam

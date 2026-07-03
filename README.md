@@ -96,6 +96,8 @@ That runs MediaMTX in the foreground briefly and prints the actual error (system
   ```bash
   sudo INSTALL_DIR="$HOME/py-stream-record" ./scripts/install.sh
   ```
+  Or copy `mediamtx.yml` to wherever `systemctl cat mediamtx.service` points.
+- **Unknown config fields** — `mediamtx.yml` must match the installed binary (currently **v1.11.3**). Do not use newer docs field names like `webrtcAllowOrigins` (plural) or per-path `writeQueueSize`.
 - **Binary missing** — same install script downloads MediaMTX to `/usr/local/bin/mediamtx`
 - **Port in use** — `sudo ss -tlnp | grep -E '8554|8889|9997'` then stop the conflicting process
 
