@@ -29,6 +29,7 @@ from app.scheduler import add_schedule_entry, delete_schedule_entry, list_schedu
 from app.sync import list_recordings, sync_file, sync_pending_local, sync_status
 from app.system import check_disk_guard, health_snapshot, public_whep_url, stream_ready
 from app.v4l2_controls import control_groups, list_v4l2_controls, set_v4l2_control
+from app.watchdog import watchdog
 
 log = logging.getLogger(__name__)
 
