@@ -151,6 +151,8 @@ def build_usb_ffmpeg_args(video_format: str | None = None) -> list[str]:
         )
     if cap.get("audio_enabled"):
         args.extend(["-c:a", "aac"])
+    else:
+        args.append("-an")
     args.extend(
         [
             "-f",

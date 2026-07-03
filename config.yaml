@@ -16,7 +16,7 @@ capture:
   source: usb
   dev_mode: false
   video_device: "/dev/video0"
-  video_format: ""
+  video_format: h264
   width: 1280
   height: 720
   fps: 30
