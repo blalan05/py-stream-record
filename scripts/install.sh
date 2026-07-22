@@ -16,19 +16,51 @@ sudo apt-get install -y \
   cifs-utils \
   curl
 
-# MediaMTX (arm64 Pi)
-if ! command -v mediamtx >/dev/null 2>&1; then
-  ARCH="$(uname -m)"
-  case "$ARCH" in
-    aarch64|arm64) MTX_ARCH="arm64" ;;
-    armv7l|armv6l) MTX_ARCH="arm32v7" ;;
-    x86_64) MTX_ARCH="amd64" ;;
-    *) echo "Unsupported arch: $ARCH"; exit 1 ;;
+# MediaMTX standalone binary (RTSP/WebRTC server)
+install_mediamtx() {
+  if command -v mediamtx >/dev/null 2>&1; then
+    echo "==> MediaMTX already installed: $(mediamtx --version 2>/dev/null | head -1 || echo mediamtx)"
+    return 0
+  fi
+
+  local mtx_version="${MEDIAMTX_VERSION:-1.19.2}"
+  local uname_arch mtx_arch url tmp
+
+  uname_arch="$(uname -m)"
+  case "$uname_arch" in
+    aarch64|arm64)
+      if [[ "$mtx_version" == 1.11.* ]]; then
+        mtx_arch="arm64v8"
+      else
+        mtx_arch="arm64"
+      fi
+      ;;
+    armv7l) mtx_arch="armv7" ;;
+    armv6l) mtx_arch="armv6" ;;
+    x86_64) mtx_arch="amd64" ;;
+    *)
+      echo "Unsupported CPU architecture for MediaMTX: $uname_arch"
+      exit 1
+      ;;
   esac
-  MTX_VERSION="1.11.3"
-  curl -fsSL "https://github.com/bluenviron/mediamtx/releases/download/v${MTX_VERSION}/mediamtx_v${MTX_VERSION}_linux_${MTX_ARCH}.tar.gz" \
-    | sudo tar -xz -C /usr/local/bin mediamtx
-fi
+
+  url="https://github.com/bluenviron/mediamtx/releases/download/v${mtx_version}/mediamtx_v${mtx_version}_linux_${mtx_arch}.tar.gz"
+  echo "==> Installing MediaMTX v${mtx_version} (${mtx_arch})"
+  tmp="$(mktemp)"
+  if ! curl -fsSL "$url" -o "$tmp"; then
+    rm -f "$tmp"
+    echo "FAIL: could not download MediaMTX:"
+    echo "  $url"
+    echo "Check MEDIAMTX_VERSION / network, or download manually from GitHub releases."
+    exit 1
+  fi
+  sudo tar -xzf "$tmp" -C /usr/local/bin mediamtx
+  rm -f "$tmp"
+  sudo chmod +x /usr/local/bin/mediamtx
+  echo "==> Installed: $(mediamtx --version 2>/dev/null | head -1 || echo mediamtx)"
+}
+
+install_mediamtx
 
 sudo mkdir -p "$INSTALL_DIR" "$RECORD_DIR" /etc/theater-app
 sudo rsync -a --exclude .venv --exclude recordings --exclude data "$APP_DIR/" "$INSTALL_DIR/"

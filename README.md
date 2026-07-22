@@ -105,7 +105,7 @@ That runs MediaMTX in the foreground briefly and prints the actual error (system
   sudo INSTALL_DIR="$HOME/py-stream-record" ./scripts/install.sh
   ```
   Or copy `mediamtx.yml` to wherever `systemctl cat mediamtx.service` points.
-- **Unknown config fields** — `mediamtx.yml` must match the installed binary (currently **v1.11.3**). Do not use newer docs field names like `webrtcAllowOrigins` (plural) or per-path `writeQueueSize`.
+- **Unknown config fields** — `mediamtx.yml` must match the installed binary (currently **v1.19.2**). Use `webrtcAllowOrigins` (plural), not the old `webrtcAllowOrigin`.
 - **Binary missing** — same install script downloads MediaMTX to `/usr/local/bin/mediamtx`
 - **Port in use** — `sudo ss -tlnp | grep -E '8554|8889|9997'` then stop the conflicting process
 
@@ -199,7 +199,7 @@ python run.py
 
 **Files (advanced):**
 - `config.yaml` — app settings (production copy at `/etc/theater-app/config.yaml`)
-- `mediamtx.yml` — WebRTC/RTSP tuning for MediaMTX **v1.11.3** (`writeQueueSize`, ports). Config field names must match the installed binary version.
+- `mediamtx.yml` — WebRTC/RTSP tuning for MediaMTX **v1.19.2** (`writeQueueSize`, ports). Config field names must match the installed binary version.
 
 ## Operating a show
 

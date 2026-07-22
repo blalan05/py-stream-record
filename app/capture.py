@@ -27,7 +27,6 @@ class CaptureState:
     last_error: str | None = None
     restarts: int = 0
     ffmpeg_cmd: str | None = None
-    stream_has_audio: bool = False
 
 
 class CaptureManager:
@@ -94,29 +93,6 @@ class CaptureManager:
                 pass
         return f"ffmpeg exited {proc.returncode}"
 
-    def _stop_ffmpeg(self) -> None:
-        if self._ffmpeg and self._ffmpeg.poll() is None:
-            self._ffmpeg.terminate()
-            try:
-                self._ffmpeg.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._ffmpeg.kill()
-        self._ffmpeg = None
-        self.state.stream_has_audio = False
-
-    def _wait_for_stream_audio(self, timeout: float = 8.0) -> bool:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                from app.system import stream_has_audio
-
-                if stream_has_audio():
-                    return True
-            except Exception:
-                pass
-            time.sleep(0.5)
-        return False
-
     def _try_usb_format(
         self,
         fmt: str | None,
@@ -139,50 +115,19 @@ class CaptureManager:
         return None
 
     def _start_usb_capture(self) -> None:
-        cfg = get_config()
-        audio_wanted = bool(cfg["capture"].get("audio_enabled"))
         errors: list[str] = []
-
         for fmt in usb_ffmpeg_format_candidates():
             proc = self._try_usb_format(fmt)
-            if not proc:
-                if self.state.last_error:
-                    errors.append(self.state.last_error)
-                continue
-            if not audio_wanted:
+            if proc:
                 self._ffmpeg = proc
-                self.state.stream_has_audio = False
                 return
-            if self._wait_for_stream_audio(6.0):
-                self._ffmpeg = proc
-                self.state.stream_has_audio = True
-                return
-            errors.append(f"[{fmt or 'auto'}] video OK but no audio track in stream")
-            self._stop_ffmpeg()
+            if self.state.last_error:
+                errors.append(self.state.last_error)
             time.sleep(0.5)
-
-        if audio_wanted:
-            for fmt in ("mjpeg", ""):
-                proc = self._try_usb_format(fmt, force_reencode=True)
-                if not proc:
-                    if self.state.last_error:
-                        errors.append(self.state.last_error)
-                    continue
-                if self._wait_for_stream_audio(8.0):
-                    self._ffmpeg = proc
-                    self.state.stream_has_audio = True
-                    log.warning("USB capture using re-encode (%s) to mux audio", fmt or "auto")
-                    return
-                errors.append(f"[{fmt or 'auto'} re-encode] no audio track in stream")
-                self._stop_ffmpeg()
-                time.sleep(0.5)
 
         joined = " | ".join(errors) if errors else "unknown error"
         self.state.last_error = joined
-        raise RuntimeError(
-            f"USB capture failed: {joined}. "
-            "Check ALSA device in Settings (use plughw, not default) and test mic with audio disabled."
-        )
+        raise RuntimeError(f"USB capture failed: {joined}")
 
     def _dev_ffmpeg_cmd(self) -> list[str]:
         cfg = get_config()
@@ -198,10 +143,6 @@ class CaptureManager:
             "lavfi",
             "-i",
             f"testsrc=size={cap['width']}x{cap['height']}:rate={cap['fps']}",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:sample_rate=48000",
             "-c:v",
             "libx264",
             "-preset",
@@ -210,12 +151,9 @@ class CaptureManager:
             "zerolatency",
             "-pix_fmt",
             "yuv420p",
-            "-c:a",
-            "aac",
-            "-shortest",
+            "-an",
             "-f",
-            "rtsp",
-            "-rtsp_transport",
+            "rtsp",            "-rtsp_transport",
             "tcp",
             rtsp,
         ]
@@ -303,7 +241,6 @@ class CaptureManager:
             self._video_proc = None
             self.state.running = False
             self.state.pid = None
-            self.state.stream_has_audio = False
 
     def restart(self) -> None:
         self.stop()
@@ -351,9 +288,8 @@ class CaptureManager:
             "audio_enabled": audio_enabled,
             "audio_device": cfg["capture"].get("audio_device"),
             "effective_audio_device": effective_device,
-            "stream_has_audio": self.state.stream_has_audio,
-            "ffmpeg_cmd": self.state.ffmpeg_cmd,
-            "resolution": f"{cfg['capture']['width']}x{cfg['capture']['height']}@{cfg['capture']['fps']}",
+            "recording_audio": audio_enabled,
+            "ffmpeg_cmd": self.state.ffmpeg_cmd,            "resolution": f"{cfg['capture']['width']}x{cfg['capture']['height']}@{cfg['capture']['fps']}",
         }
 
 

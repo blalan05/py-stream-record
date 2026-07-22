@@ -5,7 +5,7 @@ set -u
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 CONFIG="${MEDIAMTX_CONFIG:-$APP_DIR/mediamtx.yml}"
 BINARY="${MEDIAMTX_BIN:-/usr/local/bin/mediamtx}"
-EXPECTED_VERSION="${MEDIAMTX_VERSION:-1.11.3}"
+EXPECTED_VERSION="${MEDIAMTX_VERSION:-1.19.2}"
 
 echo "==> MediaMTX diagnostics"
 echo "App dir:    $APP_DIR"

@@ -116,14 +116,18 @@ async function refreshHealth() {
     setText("sync-pending", h.sync.pending_count);
     updateRecordStatus(h.recording);
 
+    const recAudio = document.getElementById("recording-audio-status");
+    if (recAudio) {
+      if (h.capture?.audio_enabled) {
+        const dev = h.capture.effective_audio_device || h.capture.audio_device || "default";
+        recAudio.textContent = `Recordings include audio (${dev})`;
+      } else {
+        recAudio.textContent = "Recordings: video only";
+      }
+    }
+
     const previewStatus = document.getElementById("preview-status");
-    if (previewStatus && h.capture?.audio_enabled && h.stream_ready && !h.stream_has_audio) {
-      const device = h.capture.effective_audio_device || h.capture.audio_device || "default";
-      previewStatus.textContent =
-        `Audio enabled but stream has no audio track — device ${device}. ` +
-        "Save Settings with plughw device, or test mic with audio disabled first.";
-      previewStatus.style.color = "#f88";
-    } else if (previewStatus && !h.stream_ready && h.capture.last_error) {
+    if (previewStatus && !h.stream_ready && h.capture.last_error) {
       previewStatus.textContent = `Capture error: ${h.capture.last_error.slice(0, 200)}`;
       previewStatus.style.color = "#f88";
     } else if (previewStatus && !h.stream_ready && !previewStatus.textContent.startsWith("Connecting")) {

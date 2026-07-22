@@ -45,39 +45,10 @@ def _file_has_audio(path: Path) -> bool:
     return "audio" in (proc.stdout or "")
 
 
-def _rtsp_has_audio(rtsp: str) -> bool:
-    if not shutil.which("ffprobe"):
-        return True
-    proc = subprocess.run(
-        [
-            "ffprobe",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-rtsp_transport",
-            "tcp",
-            "-select_streams",
-            "a",
-            "-show_entries",
-            "stream=codec_type",
-            "-of",
-            "csv=p=0",
-            "-i",
-            rtsp,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=12,
-        check=False,
-    )
-    return "audio" in (proc.stdout or "")
-
-
 def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) -> list[str]:
-    """Record from RTSP; video stream copy, audio re-encoded for valid MP4 segments.
+    """Record video from RTSP; capture audio directly from ALSA when enabled.
 
-    RTSP AAC (mpeg4-generic) often fails to mux with ``-c:a copy`` into fragmented MP4 —
-    ffmpeg reads audio packets but writes zero. Re-encoding audio avoids that regression.
+    Live stream is video-only. Recordings mux RTSP video with a separate mic input.
     """
     cfg = get_config()
     ext = cfg["recording"].get("container", "mp4")
@@ -100,16 +71,26 @@ def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) 
         "+genpts+discardcorrupt",
         "-i",
         rtsp,
-        "-map",
-        "0:v:0",
     ]
     if audio_enabled:
+        from app.settings import effective_audio_device
+
         rate = int(cap.get("audio_rate") or 48000) or 48000
         channels = int(cap.get("audio_channels") or 0) or 2
         cmd.extend(
             [
+                "-thread_queue_size",
+                "512",
+                "-f",
+                "alsa",
+                "-sample_fmt",
+                "s16",
+                "-i",
+                effective_audio_device(),
                 "-map",
-                "0:a:0",
+                "0:v:0",
+                "-map",
+                "1:a:0",
                 "-c:v",
                 "copy",
                 "-af",
@@ -125,7 +106,7 @@ def _recorder_ffmpeg_cmd(rtsp: str, segment_pattern: str, segment_seconds: int) 
             ]
         )
     else:
-        cmd.extend(["-c:v", "copy"])
+        cmd.extend(["-map", "0:v:0", "-c:v", "copy"])
     cmd.extend(
         [
             "-avoid_negative_ts",
@@ -210,32 +191,20 @@ class Recorder:
             if self._alive_locked():
                 raise RuntimeError("Already recording")
 
-            from app.system import check_disk_guard
+            from app.system import check_disk_guard, stream_ready
 
             guard = check_disk_guard()
             if not guard["ok"]:
                 raise RuntimeError(guard["message"])
 
             cfg = get_config()
+            if not stream_ready():
+                raise RuntimeError("Stream not ready — wait for capture before recording")
+
             show = show_name or cfg["recording"]["default_show_name"]
             local_dir, segment_pattern = self._output_path(show)
             rtsp = cfg["mediamtx"]["rtsp_url"]
             segment_seconds = int(cfg["recording"].get("segment_seconds", 600))
-
-            if cfg["capture"].get("audio_enabled"):
-                from app.system import stream_has_audio, stream_ready
-
-                if not stream_ready():
-                    raise RuntimeError("Stream not ready — wait for capture before recording")
-                if not stream_has_audio():
-                    raise RuntimeError(
-                        "Stream has no audio track. Check Settings (plughw device) and wait until "
-                        "Tracks shows audio before recording."
-                    )
-                if not _rtsp_has_audio(rtsp):
-                    raise RuntimeError(
-                        "RTSP stream has no audio (ffprobe). Wait for capture audio or restart capture."
-                    )
 
             cmd = _recorder_ffmpeg_cmd(rtsp, segment_pattern, segment_seconds)
             log.info("Recorder ffmpeg: %s", " ".join(cmd))
@@ -245,7 +214,10 @@ class Recorder:
                 err = ""
                 if proc.stderr:
                     err = proc.stderr.read().decode("utf-8", errors="replace").strip()
-                raise RuntimeError(err or "Recording ffmpeg exited immediately")
+                hint = ""
+                if cfg["capture"].get("audio_enabled"):
+                    hint = " Check ALSA device in Settings (plughw, not default) and test mic."
+                raise RuntimeError((err or "Recording ffmpeg exited immediately") + hint)
             self._session = RecordingSession(
                 show_name=show,
                 started_at=time.time(),
@@ -300,10 +272,7 @@ class Recorder:
             for seg in segments[:3]:
                 path = Path(seg)
                 if not _file_has_audio(path):
-                    log.error(
-                        "Recording segment has no audio track: %s (re-deploy and record again after fix)",
-                        path.name,
-                    )
+                    log.error("Recording segment has no audio track: %s", path.name)
 
         def _sync_background() -> None:
             from app.sync import sync_after_show
@@ -321,7 +290,6 @@ class Recorder:
         with self._lock:
             if not self._session or not self._session.process:
                 return
-            show = self._session.show_name
             pattern = self._session.output_pattern
             proc = self._session.process
             if proc.poll() is None:

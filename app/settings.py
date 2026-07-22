@@ -169,12 +169,12 @@ def build_usb_ffmpeg_args(
         fmt = (cap.get("video_format") or "").strip().lower()
     else:
         fmt = video_format.strip().lower()
-    if cap.get("low_latency") and not cap.get("audio_enabled"):
+    if cap.get("low_latency"):
         args.extend(["-fflags", "nobuffer"])
     if fmt:
         args.extend(["-input_format", fmt])
     passthrough = fmt == "h264" and not capture_needs_reencode() and not force_reencode
-    if passthrough and not cap.get("audio_enabled"):
+    if passthrough:
         args.extend(["-use_wallclock_as_timestamps", "1"])
     args.extend(
         [
@@ -188,20 +188,6 @@ def build_usb_ffmpeg_args(
             cap.get("video_device", "/dev/video0"),
         ]
     )
-    if cap.get("audio_enabled"):
-        # Let plughw use the device native rate/channels; forcing -ar on input often fails on USB mics.
-        args.extend(
-            [
-                "-thread_queue_size",
-                "512",
-                "-f",
-                "alsa",
-                "-sample_fmt",
-                "s16",
-                "-i",
-                effective_audio_device(),
-            ]
-        )
 
     vf_parts: list[str] = []
     vf_parts.extend(rotation_video_filters())
@@ -216,9 +202,6 @@ def build_usb_ffmpeg_args(
         args.extend(["-vf", ",".join(vf_parts)])
 
     args.extend(["-map", "0:v"])
-    if cap.get("audio_enabled"):
-        args.extend(["-map", "1:a:0"])
-
     if fmt == "h264" and not vf_parts and not force_reencode:
         args.extend(["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"])
     else:
@@ -236,25 +219,7 @@ def build_usb_ffmpeg_args(
                 str(cap["bitrate"]),
             ]
         )
-    if cap.get("audio_enabled"):
-        out_rate = int(cap.get("audio_rate") or 48000) or 48000
-        out_channels = int(cap.get("audio_channels") or 0) or 2
-        args.extend(
-            [
-                "-af",
-                "aresample=async=1000:first_pts=0",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "128k",
-                "-ar",
-                str(out_rate),
-                "-ac",
-                str(out_channels),
-            ]
-        )
-    else:
-        args.append("-an")
+    args.append("-an")
     args.extend(
         [
             "-max_interleave_delta",
@@ -322,8 +287,6 @@ def build_rpicam_args() -> list[str]:
         args.extend(["--datetime", cap["text_overlay"]])
     if cap.get("low_latency"):
         args.append("--low-latency")
-    if cap.get("audio_enabled"):
-        args.extend(["--libav-audio", "--audio-device", effective_audio_device()])
 
     af_mode = cam.get("af_mode", "continuous")
     if af_mode:

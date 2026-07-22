@@ -205,23 +205,21 @@ def _friendly_alsa_error(device: str, output: str, returncode: int, busy_hint: s
 
 
 def _capture_using_device(device: str) -> str | None:
-    """Return a user message if live capture already has this ALSA device open."""
+    """Return a user message if the recorder already has this ALSA device open."""
     try:
-        from app.capture import capture_manager
+        from app.recorder import recorder
         from app.config import get_config
         from app.settings import effective_audio_device
 
         cfg = get_config()
-        if not cfg["capture"].get("audio_enabled") or not capture_manager.state.running:
+        if not cfg["capture"].get("audio_enabled") or not recorder.is_recording:
             return None
         active = effective_audio_device()
         candidates = {device, active, cfg["capture"].get("audio_device", "")}
         normalized = {c.replace("plughw:", "hw:") for c in candidates if c}
         if device.replace("plughw:", "hw:") in normalized or device in candidates:
             return (
-                "This mic is already open for live capture (only one app can use it at a time). "
-                "If capture is running, check the dashboard audio meter instead. "
-                "To run Test mic: uncheck Audio enabled, save settings, test, then re-enable."
+                "This mic is in use by the active recording. Stop recording first, then test mic."
             )
     except Exception:
         pass
